@@ -7,7 +7,7 @@ The single source of truth for people: profile, addresses, employment history (p
 - `/employees`: list (table ⇄ cards), filters in the URL
 - `/employees/new`
 - `/employees/[id]`: tabs **Overview · Employment · Deployments · Activity Reports · Activity (audit)**
-- `/employees/change-requests`: review queue (scoped)
+- `/employees/change-requests`: review queue (scoped by `employee.review_changes`)
 
 ## Permissions & scope
 | Key | Scoped | Notes |
@@ -15,13 +15,14 @@ The single source of truth for people: profile, addresses, employment history (p
 | `employee.view` | ✅ | Lists and detail pages filtered by `scopeWhere` |
 | `employee.view_compensation` | ✅ | Salary/allowances columns and fields. Otherwise hidden in the DTO, not just the UI |
 | `employee.create` | — | New employees. The team selector is limited to teams in the creator's `employee.update` scope |
-| `employee.update` | ✅ | Profile, addresses, employment, deployments, change-request approval |
+| `employee.update` | ✅ | Profile, addresses, employment, deployments |
+| `employee.review_changes` | ✅ | Approve or reject self-service change requests (`/employees/change-requests`). Approving applies only the requested fields, so the reviewer doesn't need `employee.update` |
 | `employee.deactivate` / `employee.restore` | ✅ / — | Soft delete (`deletedAt`) |
 | `employee.export` | ✅ | CSV/XLSX of the scoped list |
 
 **Scope examples:**
 - Administrator (ALL): every employee.
-- Team Lead of *Java Team* and *QA Team* (TEAM): employees whose `teamId` is one of those two, plus themselves. That **includes salary and allowances** (`employee.view_compensation@TEAM`, decided in Q9), but not editing them.
+- Team Lead of *Java Team* and *QA Team* (TEAM): employees whose `teamId` is one of those two, plus themselves. That **includes salary and allowances** (`employee.view_compensation@TEAM`, decided in Q9), but not editing them. They also review their teams' profile change requests (`employee.review_changes@TEAM`), never their own.
 - Employee (OWN): only themselves (their own record opens read-only, with a "Request change" link to Settings).
 
 ## Screens

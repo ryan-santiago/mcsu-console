@@ -18,7 +18,8 @@ An immutable record of who changed what and when.
 
 ## Business rules
 - No update or delete API for audit rows. Retention is 3 years; a cron job archives older rows (Phase 3).
-- Sensitive fields are masked (salary, tokens). Passwords are never logged.
+- **Compensation** values (salary, allowances) are stored in the audit row as they are, and **masked when read** (`•••`) unless the viewer has `employee.view_compensation` in scope for that employee. This applies to the audit page, entity Activity tabs and CSV export.
+- **Secrets** (passwords, tokens, 2FA secrets, backup codes) are never written to the audit log at all.
 
 ## Acceptance criteria
 - [ ] Every mutation in Phase 1 modules produces exactly one audit row with correct diffs.

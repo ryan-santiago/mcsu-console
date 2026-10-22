@@ -33,12 +33,9 @@ CMD ["pnpm", "dev", "--hostname", "0.0.0.0", "--port", "3000"]
 
 # ───────────── build ─────────────
 FROM base AS build
-# NEXT_PUBLIC_* values are inlined at build time → pass as build args.
-ARG NEXT_PUBLIC_APP_URL=http://localhost:3000
-ARG NEXT_PUBLIC_VAPID_PUBLIC_KEY=
-ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL \
-    NEXT_PUBLIC_VAPID_PUBLIC_KEY=$NEXT_PUBLIC_VAPID_PUBLIC_KEY \
-    SKIP_ENV_VALIDATION=1
+# No NEXT_PUBLIC_* build args: public config (APP_URL, VAPID public key) is read at
+# runtime, so one image is promoted unchanged from staging to prod (ADR 0014).
+ENV SKIP_ENV_VALIDATION=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN pnpm db:generate && pnpm build
@@ -61,6 +58,8 @@ ENV NODE_ENV=production \
 COPY --from=build --chown=nextjs:nodejs /app/public ./public
 COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
+# AWS RDS CA bundle for sslmode=verify-full (docs/11-aws-deployment.md §6)
+ADD --chown=nextjs:nodejs --chmod=644 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem ./certs/rds-global-bundle.pem
 USER nextjs
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

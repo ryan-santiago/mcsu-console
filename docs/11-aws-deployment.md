@@ -96,18 +96,18 @@ Do it for **staging** first (milestone 1.1b), and repeat for **production** at g
 | # | Step | Who | How |
 |---|---|---|---|
 | 1 | Create the member account and team access | QNX AWS Org admin | Org → new account in the right OU; IAM Identity Center permission sets |
-| 2 | Bootstrap Terraform state | Dev lead | S3 bucket (versioned, encrypted) + DynamoDB/S3 lock in the account |
-| 3 | Provision infrastructure | Dev lead | `cd infra && terraform workspace select staging && terraform apply`. Creates the VPC, security groups, ALB (HTTP listener + redirect), EC2 from the launch template, RDS, ECR, SSM parameter **names**, CloudWatch alarms, EventBridge rules, GitHub OIDC role |
+| 2 | Bootstrap Terraform state | Dev lead | S3 bucket (versioned, encrypted) with S3 native locking (`use_lockfile = true`) in **this** account |
+| 3 | Provision infrastructure | Dev lead | `cd infra && terraform init -reconfigure -backend-config=envs/staging.backend.hcl && terraform apply -var-file=envs/staging.tfvars`. One backend per account; no Terraform workspaces (they would share one state bucket across accounts). Creates the VPC, security groups, ALB (HTTP listener + redirect), EC2 from the launch template, RDS, ECR, SSM parameter **names**, CloudWatch alarms, EventBridge rules, GitHub OIDC role |
 | 4 | Request the certificate | Terraform (step 3) | ACM certificate for `staging-console.<domain>`, DNS validation. Terraform outputs the validation CNAME |
 | 5 | Add the validation record | Whoever manages DNS | Add the CNAME from step 4 at Hostinger. Wait for ACM status **Issued** (minutes to 1 hour) |
 | 6 | Enable HTTPS | Dev lead | `terraform apply` again: the HTTPS 443 listener uses the issued certificate |
 | 7 | Point the name at the ALB | Whoever manages DNS | CNAME `staging-console` → the ALB DNS name (Terraform output) |
 | 8 | Fill in secrets | Dev lead | Set values in Parameter Store `/mcsu-console/staging/*` (DB URLs, `BETTER_AUTH_SECRET`, Azure/Graph values, `CRON_SECRET`, `SEED_SUPERADMIN_*`) |
-| 9 | Create database users | Dev lead | One-off SQL through Session Manager port forwarding: `migrator` (owns the schema) and `app_user` (read/write only) |
+| 9 | Create database users | Dev lead | One-off SQL through Session Manager port forwarding: `migrator` (owns the schema) and `app_user` (read/write only). Include `ALTER DEFAULT PRIVILEGES FOR ROLE migrator IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_user` (and `USAGE, SELECT ON SEQUENCES`), or tables created by later migrations won't be readable by the app |
 | 10 | First deploy | Dev lead | GitHub → Actions → **Deploy** → *Run workflow* (environment: staging). The `migrate` job creates the tables and seeds the Super Admin |
 | 11 | Smoke test | Team | Sign in as Super Admin, check `/api/health`, install the PWA on a phone, send a test email |
 
-The EC2 **launch template user-data** installs Docker + the Compose plugin, the CloudWatch agent, the SSM agent (preinstalled on Amazon Linux 2023), `/opt/mcsu/deploy.sh` and `/opt/mcsu/compose.aws.yaml`. A replaced instance comes back ready, and the next deploy starts the app.
+The EC2 **launch template user-data** installs Docker + the Compose plugin, the CloudWatch agent, the SSM agent (preinstalled on Amazon Linux 2023), `/opt/mcsu/deploy.sh` and `/opt/mcsu/compose.aws.yaml`, and writes `/opt/mcsu/env-name` (`staging`/`prod`) and `/opt/mcsu/ecr-registry` (`<account-id>.dkr.ecr.ap-southeast-1.amazonaws.com`). A replaced instance comes back ready, and the next deploy starts the app.
 
 ### 5.2 Every release
 
@@ -123,26 +123,28 @@ sequenceDiagram
 
   Dev->>GH: merge PR to main (CI green)
   GH->>GH: typecheck · lint · test · build arm64 image (runner + migrate targets)
-  GH->>ECR: push mcsu-console:<git-sha> (OIDC, no stored AWS keys)
+  GH->>ECR: push mcsu-console:<git-sha> and :<git-sha>-migrate (OIDC, no stored AWS keys)
   GH->>SSM: send-command "deploy.sh <git-sha>" (staging)
   SSM->>EC2: run deploy.sh
   EC2->>ECR: docker compose pull
   EC2->>RDS: docker compose run --rm migrate (prisma migrate deploy + catalog sync)
-  EC2->>EC2: docker compose up -d app → wait for /api/health
-  Note over GH,EC2: Production: triggered by a release tag (v1.2.0), waits for manual approval,<br/>takes an RDS snapshot, then runs the same steps on the prod account
+  EC2->>EC2: docker compose up -d app → wait for /api/ready
+  Note over GH,EC2: Production: triggered by a release tag (v1.2.0), waits for manual approval,<br/>copies the staging-tested images to the prod ECR by digest (no rebuild),<br/>takes an RDS snapshot, then runs the same deploy steps on the prod account
 ```
 
 **Workflows** (`.github/workflows/`):
 | File | Trigger | Does |
 |---|---|---|
 | `ci.yml` | every PR | typecheck, lint, unit + integration tests (Postgres service), Docker build (no push) |
-| `deploy.yml` | push to `main` → staging; tag `v*` → production (approval required); manual *Run workflow* with any tag | build + push image to the environment's ECR, (prod) RDS snapshot, SSM `send-command` → `deploy.sh <tag>`, wait for the result, post a summary |
+| `deploy.yml` | push to `main` → staging; tag `v*` → production (approval required); manual *Run workflow* with any tag | staging: build + push the `runner` (`:<sha>`) and `migrate` (`:<sha>-migrate`) images. Prod: copy the images already deployed to staging for that commit into the prod ECR by digest (fails if staging never ran that commit). Then (prod) RDS snapshot, SSM `send-command` → `deploy.sh <tag>`, wait for the result, post a summary |
 
 **`deploy/deploy.sh <tag>`** (runs on the EC2 host as root, via SSM):
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-TAG="$1"; ENV_NAME="$(cat /opt/mcsu/env-name)"; cd /opt/mcsu
+TAG="$1"; cd /opt/mcsu
+# Written by the launch template user-data:
+ENV_NAME="$(cat env-name)"; export ECR_REGISTRY="$(cat ecr-registry)"; export AWS_REGION=ap-southeast-1
 # 1. secrets → root-only env file
 aws ssm get-parameters-by-path --path "/mcsu-console/$ENV_NAME/" --with-decryption --recursive \
   --query 'Parameters[].[Name,Value]' --output text \
@@ -157,7 +159,7 @@ docker compose -f compose.aws.yaml run --rm migrate
 # 4. start the new app and wait until it's healthy
 docker compose -f compose.aws.yaml up -d app
 for i in $(seq 1 30); do
-  curl -fsS http://127.0.0.1:3000/api/health >/dev/null && { echo "$TAG" > current-tag; exit 0; }
+  curl -fsS http://127.0.0.1:3000/api/ready >/dev/null && { echo "$TAG" > current-tag; exit 0; }
   sleep 2
 done
 # 5. unhealthy → automatic rollback
@@ -166,7 +168,7 @@ echo "Health check failed, rolling back to $PREV_TAG" >&2
 exit 1
 ```
 
-**`deploy/compose.aws.yaml`** runs only `app` and `migrate`, using the ECR image `${ECR_REGISTRY}/mcsu-console:${IMAGE_TAG}`, `env_file: .env`, the `awslogs` log driver and `restart: unless-stopped`. The app reads `DATABASE_URL`, and the `migrate` job reads `MIGRATE_DATABASE_URL` (`prisma.config.ts` uses `MIGRATE_DATABASE_URL ?? DATABASE_URL`). There's no `db` service.
+**`deploy/compose.aws.yaml`** runs only `app` (image `${ECR_REGISTRY}/mcsu-console:${IMAGE_TAG}`) and `migrate` (image `${ECR_REGISTRY}/mcsu-console:${IMAGE_TAG}-migrate`), `env_file: .env`, the `awslogs` log driver and `restart: unless-stopped`. The app reads `DATABASE_URL`, and the `migrate` job reads `MIGRATE_DATABASE_URL` (`prisma.config.ts` uses `MIGRATE_DATABASE_URL ?? DATABASE_URL`). There's no `db` service.
 
 A deploy on one instance causes a brief restart (~5–10s). Zero-downtime (two instances or blue/green) is a later option.
 
@@ -178,7 +180,7 @@ A deploy on one instance causes a brief restart (~5–10s). Zero-downtime (two i
 ### 5.4 Production go-live checklist
 - [ ] Production domain decided ([Q18](08-open-questions.md)) and DNS access confirmed
 - [ ] Prod account provisioned (5.1 steps 1–9), certificate **Issued**, `console` CNAME live
-- [ ] `BETTER_AUTH_URL` / `NEXT_PUBLIC_APP_URL` set to the production URL
+- [ ] `BETTER_AUTH_URL` / `APP_URL` set to the production URL in prod Parameter Store
 - [ ] Restore-from-backup drill done once on prod RDS
 - [ ] Alarms subscribed (SNS email confirmed), budget alert set
 - [ ] First release tag deployed with approval, smoke test passed
@@ -188,17 +190,19 @@ A deploy on one instance causes a brief restart (~5–10s). Zero-downtime (two i
 - All secrets live in **SSM Parameter Store (SecureString)** under `/mcsu-console/<env>/…` (e.g. `DATABASE_URL`, `MIGRATE_DATABASE_URL`, `BETTER_AUTH_SECRET`, `AZURE_CLIENT_SECRET`, `CRON_SECRET`, `VAPID_PRIVATE_KEY`). The EC2 instance role can read only its own environment's path.
 - `DATABASE_URL` for RDS: `postgresql://app_user:…@<rds-endpoint>:5432/mcsu_console?sslmode=verify-full&sslrootcert=/app/certs/rds-global-bundle.pem` (the AWS RDS CA bundle is baked into the image).
 - The database has two users: `app_user` (read/write only, used by the app) and `migrator` (schema changes, used only by the `migrate` job).
-- `NEXT_PUBLIC_*` values are build args per environment (the staging and prod images are built separately) or are read at runtime through a small `/api/config` route. Decide at milestone 1.1. The default is build args.
+- **Build once, promote the digest** ([ADR 0014](adr/0014-build-once-runtime-config.md)). There are no `NEXT_PUBLIC_*` variables. Public config (`APP_URL`, `VAPID_PUBLIC_KEY`) is read on the server at runtime and passed to client components as props. The image that passed staging is copied to the prod ECR by digest. Prod never rebuilds.
 
 ## 7. Scheduled jobs
-EventBridge **scheduled rules with API destinations** call `https://<env-host>/api/cron/<job>` with an `x-cron-secret` header. The route handler verifies the header and is idempotent.
+EventBridge **scheduled rules with API destinations** call `https://<env-host>/api/cron/<job>` with an `x-cron-secret` header. The header value is stored in the EventBridge **connection** (which keeps it in Secrets Manager) and must match `CRON_SECRET` in Parameter Store. The route handler verifies the header and is idempotent.
 
-| Job | Schedule (Asia/Manila) | Phase |
-|---|---|---|
-| Contract renewal check (45/30-day thresholds) | daily 07:00 | 2.2 |
-| MAR missing-days reminder | last 3 working days of month, 09:00 | 2.1 / 2.6 |
-| MAR pending-approval reminder | 3rd of month, 09:00 | 2.1 / 2.6 |
-| Audit log archive | monthly | 3 |
+EventBridge schedules are fixed and can't express "working days" or values admins change in Settings. So the rules fire **daily**, and the handler decides whether there's anything to do today, using `AppSetting` values (thresholds, reminder offsets) and the `Holiday` lookup (Maintenance).
+
+| Job | Schedule (Asia/Manila) | Handler decides | Phase |
+|---|---|---|---|
+| Contract renewal check | daily 07:00 | Deployments crossing `staffAug.renewalThresholds` (default 45/30 days). Each threshold notifies once | 2.2 |
+| MAR missing-days reminder | daily 09:00 | Runs only when today is one of the last `mar.missingDaysReminderWorkingDays` (default 3) working days of the month | 2.1 / 2.6 |
+| MAR not-sent / acknowledgment reminders | daily 09:00 | `mar.not_sent` on day `mar.sendReminderDay` (default 3); `mar.ack_pending` for MARs sent `mar.ackReminderDays` (default 7) ago | 2.1 / 2.6 |
+| Audit log archive | monthly | | 3 |
 
 Jobs don't run on the EC2 host itself, so they keep working when the instance is replaced.
 
@@ -234,7 +238,7 @@ Jobs don't run on the EC2 host itself, so they keep working when the instance is
 Provision with **Terraform** (or AWS CDK if the team prefers TypeScript) in `infra/`: VPC, subnets, security groups, ALB + listeners, ACM certificate (DNS validation, records added by hand at the DNS provider), EC2 launch template + instance profile, RDS + parameter group, ECR, SSM parameter names, EventBridge rules, CloudWatch alarms, GitHub OIDC role. Staging and prod use the same modules with different variables (one state per account). This happens in milestone **1.1b** (see the [roadmap](06-roadmap.md)).
 
 ## 12. What the app needs for this setup
-- `output: "standalone"`, `/api/health`, the `migrate` job ([10-docker.md](10-docker.md)).
+- `output: "standalone"`, `/api/health` (liveness, used by the ALB and Docker), `/api/ready` (DB check, used by `deploy.sh`), the `migrate` job ([10-docker.md](10-docker.md)).
 - `@prisma/adapter-pg` (the only driver) with SSL (`sslmode=verify-full`).
 - `/api/cron/*` routes protected by `CRON_SECRET`.
 - Trust proxy headers from the ALB (`x-forwarded-for`, `x-forwarded-proto`) for audit IPs and Better Auth's secure cookies (`BETTER_AUTH_URL` = the public HTTPS URL).

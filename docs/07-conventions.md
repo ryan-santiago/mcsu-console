@@ -20,8 +20,13 @@
 ```ts
 // src/lib/authz/action.ts
 export function authedAction<S extends z.ZodTypeAny, R>(
-  opts: { permission: PermissionKey | PermissionKey[]; schema: S },
-  handler: (ctx: { user: AuthUser; input: z.infer<S>; tx: Tx; audit: AuditFn }) => Promise<R>,
+  opts: {
+    permission: PermissionKey | PermissionKey[];
+    schema: S;
+    resource?: { type: "onelot"; id: (input: z.infer<S>) => string }; // One-Lot membership only, 03 §5b
+    revalidate?: (data: R) => string[];                                // paths revalidated AFTER commit
+  },
+  handler: (ctx: { user: AuthUser; input: z.infer<S>; tx: Tx; audit: AuditFn; notify: NotifyFn }) => Promise<R>,
 ): (input: z.input<S>) => Promise<ActionResult<R>>;
 
 export type ActionResult<T> =
@@ -32,17 +37,22 @@ Usage:
 ```ts
 "use server";
 export const updateEmployee = authedAction(
-  { permission: "employee.update", schema: employeeUpdateSchema },
+  {
+    permission: "employee.update",
+    schema: employeeUpdateSchema,
+    revalidate: ({ id }) => ["/employees", `/employees/${id}`],
+  },
   async ({ user, input, tx, audit }) => {
     const before = await tx.employee.findFirst({ where: { id: input.id, ...scopeWhere(user, "employee.update") } });
     if (!before) throw new NotFoundError();           // mapped to { ok:false, error:"NOT_FOUND" }
     const after = await tx.employee.update({ where: { id: input.id }, data: toEmployeeData(input) });
     await audit({ module: "employee", action: "update", entityId: after.id, entityLabel: fullName(after), changes: diffFields(before, after, EMPLOYEE_FIELD_LABELS) });
-    revalidatePath("/employees"); revalidatePath(`/employees/${after.id}`);
     return { id: after.id };
   },
 );
 ```
+- The handler runs inside `prisma.$transaction`. `audit()` and `notify()` ([notifications](modules/notifications.md)) write in that same transaction; emails and push go out after the commit. The wrapper calls `revalidatePath`/`updateTag` **only after the commit succeeds**, so a rolled-back write never invalidates caches.
+- **Actions never throw to the caller.** Inside the handler, expected failures throw typed errors, and the wrapper turns them into `{ ok: false, … }` results.
 - Expected failures throw typed errors (`NotFoundError`, `ConflictError`, `PolicyError`), which the wrapper maps to results. Unknown errors are logged to Sentry and returned as `UNKNOWN`. Stack traces never reach the client.
 - Clients call actions through `useActionMutation(action)` (TanStack Query `useMutation` + sonner toasts + RHF `setError` for `fieldErrors`).
 
@@ -57,7 +67,7 @@ export const updateEmployee = authedAction(
 
 ## Audit
 - Every mutation records `{ module, action, entityId, entityLabel, changes[] }`. The actor, IP and user agent are filled automatically.
-- `diffFields(before, after, labels)` only records changed, labelled fields. **Never log secrets.** Salaries are logged as `"•••"` changes unless the viewer has `employee.view_compensation`.
+- `diffFields(before, after, labels)` only records changed, labelled fields. **Never log secrets** (passwords, tokens, 2FA secrets). Compensation fields are stored as they are and masked as `"•••"` **at read time** unless the viewer has `employee.view_compensation` in scope ([audit-trail](modules/audit-trail.md)).
 - Auth events (`login`, `logout`, `login_failed`, `password_reset`) are recorded via Better Auth hooks.
 
 ## Errors & UX
@@ -73,6 +83,11 @@ export const updateEmployee = authedAction(
 | E2E | Playwright (desktop + Pixel 7 + iPhone 14 projects) | Login per persona (Super Admin, Admin, Team Lead A, Team Lead B, Employee), scoped visibility, rank-rule denials, visual snapshots of `/design` |
 
 Fixture personas live in `tests/fixtures/personas.ts` and are reused by integration and e2e tests.
+
+## Lint rules (custom, set up in milestone 1.1)
+- Ban comparing group names or ids (`group.name === …`, `groupId === …`) outside `src/lib/authz/**` and the seed ([03 Lessons](03-rbac.md#lessons-from-mcsu-app)).
+- Ban `process.env` in `"use client"` files and in `src/components/**`. Public config comes in as props ([ADR 0014](adr/0014-build-once-runtime-config.md)). Server code reads `env` from `@/lib/env`.
+- Ban importing `@prisma/client` / `@/generated/prisma/client` outside `@/lib/db`.
 
 ## Git & delivery
 - Trunk-based: short-lived branches `feat/…`, `fix/…`, `docs/…`. PRs into `main`, squash merge.

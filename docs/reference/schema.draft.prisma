@@ -41,15 +41,18 @@ model User {
   group         Group?     @relation(fields: [groupId], references: [id], onDelete: Restrict)
   employeeId    String?    @unique // auto-linked by email == Employee.workEmail
   employee      Employee?  @relation(fields: [employeeId], references: [id], onDelete: SetNull)
-  approvedAt    DateTime?
+  approvedAt    DateTime? @db.Timestamptz(3)
   approvedById  String?
-  lastLoginAt   DateTime?
+  lastLoginAt   DateTime? @db.Timestamptz(3)
+  twoFactorEnabled Boolean @default(false) // Better Auth twoFactor plugin; required for rank <= 10 (R15)
   preferences   Json       @default("{}") // { theme: "system"|"light"|"dark", palette: "qserv"|"ember"|"midnight"|"graphite", density, sidebarCollapsed }
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  createdAt     DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime   @updatedAt @db.Timestamptz(3)
 
   sessions      Session[]
   accounts      Account[]
+  twoFactors    TwoFactor[]
+  notifications Notification[]
   auditLogs     AuditLog[]
   memberships   OneLotMember[]
   assignedItems WorkItem[]        @relation("WorkItemAssignee")
@@ -67,11 +70,11 @@ model Session {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   token     String   @unique
-  expiresAt DateTime
+  expiresAt DateTime @db.Timestamptz(3)
   ipAddress String?
   userAgent String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@index([userId])
   @@map("session")
@@ -86,12 +89,12 @@ model Account {
   accessToken           String?
   refreshToken          String?
   idToken               String?
-  accessTokenExpiresAt  DateTime?
-  refreshTokenExpiresAt DateTime?
+  accessTokenExpiresAt  DateTime? @db.Timestamptz(3)
+  refreshTokenExpiresAt DateTime? @db.Timestamptz(3)
   scope                 String?
   password              String?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([userId])
   @@map("account")
@@ -101,12 +104,24 @@ model Verification {
   id         String   @id
   identifier String
   value      String
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  expiresAt  DateTime @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
 
   @@index([identifier])
   @@map("verification")
+}
+
+/// Better Auth twoFactor plugin (TOTP secret + hashed backup codes). Regenerate with `npx @better-auth/cli generate` and diff.
+model TwoFactor {
+  id          String @id
+  secret      String
+  backupCodes String
+  userId      String
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("two_factor")
 }
 
 // ───────────────────────────── Access control ─────────────────────────────
@@ -123,11 +138,12 @@ model Group {
   rank        Int // lower = more authority; 0 = Super Admin
   description String?
   isSystem    Boolean           @default(false)
-  isDefault   Boolean           @default(false) // group assigned on approval (exactly one)
+  isDefault   Boolean           @default(false) // group assigned on approval (exactly one; partial unique index)
+  audience    UserType          @default(STAFF) // R14: must equal User.type of every member
   grants      GroupPermission[]
   users       User[]
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  createdAt   DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime          @updatedAt @db.Timestamptz(3)
 
   @@index([rank])
   @@map("group")
@@ -168,8 +184,8 @@ model Client {
   deployments EmployeeDeployment[]
   users       User[] // CLIENT-type portal users (Phase 3)
   emailDomains String[]            @default([]) // for email-to-ticket sender matching
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  createdAt   DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime             @updatedAt @db.Timestamptz(3)
 
   @@map("client")
 }
@@ -180,8 +196,8 @@ model Position {
   isActive    Boolean              @default(true)
   employments EmployeeEmployment[]
   jobProfiles JobProfile[]
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  createdAt   DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime             @updatedAt @db.Timestamptz(3)
 
   @@map("position")
 }
@@ -193,8 +209,8 @@ model Level {
   isActive    Boolean              @default(true)
   employments EmployeeEmployment[]
   jobProfiles JobProfile[]
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  createdAt   DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime             @updatedAt @db.Timestamptz(3)
 
   @@map("level")
 }
@@ -204,8 +220,8 @@ model Gender {
   name      String     @unique
   isActive  Boolean    @default(true)
   employees Employee[]
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  createdAt DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime   @updatedAt @db.Timestamptz(3)
 
   @@map("gender")
 }
@@ -215,8 +231,8 @@ model EmploymentType {
   name        String               @unique // Regular, Probationary, Project-Hired, …
   isActive    Boolean              @default(true)
   employments EmployeeEmployment[]
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  createdAt   DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime             @updatedAt @db.Timestamptz(3)
 
   @@map("employment_type")
 }
@@ -226,8 +242,8 @@ model EngagementType {
   name      String    @unique // Staff Augmentation, One-Lot, Managed Services, Implementation, Maintenance
   isActive  Boolean   @default(true)
   projects  Project[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
 
   @@map("engagement_type")
 }
@@ -238,8 +254,8 @@ model SalesRepresentative {
   email     String?
   isActive  Boolean   @default(true)
   projects  Project[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
 
   @@map("sales_representative")
 }
@@ -250,8 +266,8 @@ model SolutionsManager {
   email     String?
   isActive  Boolean   @default(true)
   projects  Project[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
 
   @@map("solutions_manager")
 }
@@ -264,8 +280,8 @@ model Team {
   leads       TeamLead[]
   members     Employee[]
   projects    ProjectTeam[]
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt   DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime      @updatedAt @db.Timestamptz(3)
 
   @@map("team")
 }
@@ -276,7 +292,7 @@ model TeamLead {
   team       Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   employeeId String
   employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  createdAt  DateTime @default(now())
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
 
   @@id([teamId, employeeId])
   @@index([employeeId])
@@ -292,11 +308,28 @@ model JobProfile {
   jobDescription    String?
   jobQualification  String?
   isActive          Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @db.Timestamptz(3)
 
   @@unique([positionId, levelId])
   @@map("job_profile")
+}
+
+enum HolidayType {
+  REGULAR
+  SPECIAL_NON_WORKING
+}
+
+/// Non-working days for working-day calculations (MAR missing days, reminders).
+model Holiday {
+  id        String      @id @default(uuid(7))
+  date      DateTime    @unique @db.Date
+  name      String
+  type      HolidayType @default(REGULAR)
+  createdAt DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime    @updatedAt @db.Timestamptz(3)
+
+  @@map("holiday")
 }
 
 // ───────────────────────────── Workforce: Employee ─────────────────────────────
@@ -321,9 +354,9 @@ model Employee {
   hireDate          DateTime? @db.Date
   resignationDate   DateTime? @db.Date // "is resigned" is derived, never stored
   reasonForLeaving  String?
-  deletedAt         DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime? @db.Timestamptz(3)
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @db.Timestamptz(3)
 
   user              User?
   leads             TeamLead[]
@@ -332,7 +365,6 @@ model Employee {
   deployments       EmployeeDeployment[]
   activityReports   ActivityReport[]
   monthlyReports    MonthlyActivityReport[]
-  staffAugAssignments StaffAugAssignment[]
   changeRequests    EmployeeChangeRequest[]
 
   @@index([lastName])
@@ -361,7 +393,7 @@ model EmployeeAddress {
   addressLine  String
   latitude     Decimal?    @db.Decimal(10, 7)
   longitude    Decimal?    @db.Decimal(10, 7)
-  updatedAt    DateTime    @updatedAt
+  updatedAt    DateTime    @updatedAt @db.Timestamptz(3)
 
   @@unique([employeeId, type])
   @@map("employee_address")
@@ -382,8 +414,8 @@ model EmployeeEmployment {
   transportationAllowance Decimal        @default(0) @db.Decimal(12, 2)
   startDate               DateTime       @db.Date
   endDate                 DateTime?      @db.Date // null = current
-  createdAt               DateTime       @default(now())
-  updatedAt               DateTime       @updatedAt
+  createdAt               DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime       @updatedAt @db.Timestamptz(3)
 
   @@index([employeeId, startDate])
   @@map("employee_employment")
@@ -401,8 +433,8 @@ model EmployeeDeployment {
   role       String? // role at client, e.g. "Java Developer"
   startDate  DateTime  @db.Date
   endDate    DateTime? @db.Date // contract end; null = open-ended
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([employeeId, startDate])
   @@index([projectId])
@@ -426,10 +458,10 @@ model EmployeeChangeRequest {
   proposed     Json // { profile, currentAddress, permanentAddress }
   changes      Json // AuditChange[]
   reviewedById String?
-  reviewedAt   DateTime?
+  reviewedAt   DateTime? @db.Timestamptz(3)
   reviewNote   String?
-  createdAt    DateTime            @default(now())
-  updatedAt    DateTime            @updatedAt
+  createdAt    DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime            @updatedAt @db.Timestamptz(3)
 
   @@index([employeeId, status])
   @@map("employee_change_request")
@@ -452,9 +484,9 @@ model Project {
   startDate             DateTime?            @db.Date
   endDate               DateTime?            @db.Date
   clientAliases         String[]             @default([]) // alternate client names on documents
-  deletedAt             DateTime?
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @updatedAt
+  deletedAt             DateTime? @db.Timestamptz(3)
+  createdAt             DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime             @updatedAt @db.Timestamptz(3)
 
   lines                 ProjectLine[]
   teams                 ProjectTeam[]
@@ -474,8 +506,8 @@ model ProjectLine {
   contractPrice Decimal  @db.Decimal(12, 2)
   estimatedCost Decimal  @db.Decimal(12, 2)
   sortOrder     Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
 
   @@map("project_line")
 }
@@ -486,7 +518,7 @@ model ProjectTeam {
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   teamId    String
   team      Team     @relation(fields: [teamId], references: [id], onDelete: Restrict)
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
 
   @@id([projectId, teamId])
   @@index([teamId])
@@ -502,9 +534,9 @@ model OneLotProject {
   description     String?
   nextItemNumber  Int                 @default(1)
   createdById     String?
-  archivedAt      DateTime?
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  archivedAt      DateTime? @db.Timestamptz(3)
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime            @updatedAt @db.Timestamptz(3)
 
   links           OneLotProjectLink[] // ≥1 required (enforced in action)
   members         OneLotMember[]
@@ -522,7 +554,7 @@ model OneLotProjectLink {
   oneLotProject   OneLotProject @relation(fields: [oneLotProjectId], references: [id], onDelete: Cascade)
   projectId       String
   project         Project       @relation(fields: [projectId], references: [id], onDelete: Restrict)
-  createdAt       DateTime      @default(now())
+  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
 
   @@id([oneLotProjectId, projectId])
   @@index([projectId])
@@ -541,7 +573,7 @@ model OneLotMember {
   userId          String
   user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   role            OneLotRole    @default(MEMBER)
-  createdAt       DateTime      @default(now())
+  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
 
   @@id([oneLotProjectId, userId])
   @@index([userId])
@@ -563,11 +595,11 @@ model Sprint {
   status          SprintStatus  @default(PLANNED)
   startDate       DateTime?     @db.Date
   endDate         DateTime?     @db.Date
-  startedAt       DateTime?
-  completedAt     DateTime?
+  startedAt       DateTime? @db.Timestamptz(3)
+  completedAt     DateTime? @db.Timestamptz(3)
   workItems       WorkItem[]
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime      @updatedAt @db.Timestamptz(3)
 
   // "one ACTIVE sprint per project" → partial unique index added in a raw SQL migration
   @@index([oneLotProjectId, status])
@@ -630,10 +662,10 @@ model WorkItem {
   labels          String[]         @default([])
   rank            String // fractional index (LexoRank-style) for backlog order
   boardRank       String // fractional index within column
-  doneAt          DateTime?
+  doneAt          DateTime? @db.Timestamptz(3)
   comments        WorkItemComment[]
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  createdAt       DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @db.Timestamptz(3)
 
   @@unique([oneLotProjectId, code])
   @@index([oneLotProjectId, sprintId, rank])
@@ -649,8 +681,8 @@ model WorkItemComment {
   authorId   String?
   author     User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
   body       String
-  editedAt   DateTime?
-  createdAt  DateTime @default(now())
+  editedAt   DateTime? @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([workItemId, createdAt])
   @@map("work_item_comment")
@@ -674,8 +706,8 @@ model OneLotDocument {
   mimeType        String?
   size            Int?
   uploadedById    String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  createdAt       DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @db.Timestamptz(3)
 
   @@index([oneLotProjectId, parentId])
   @@map("one_lot_document")
@@ -700,8 +732,8 @@ model ActivityReport {
   timeOut    DateTime?            @db.Time(0)
   otHours    Decimal?             @db.Decimal(5, 2)
   items      ActivityReportItem[]
-  createdAt  DateTime             @default(now())
-  updatedAt  DateTime             @updatedAt
+  createdAt  DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime             @updatedAt @db.Timestamptz(3)
 
   @@unique([employeeId, date])
   @@index([date])
@@ -721,11 +753,11 @@ model ActivityReportItem {
   @@map("activity_report_item")
 }
 
+/// No internal approval (Q4): the employee emails the PDF to the client, who acknowledges by email.
 enum MarStatus {
   DRAFT
-  SUBMITTED
-  RETURNED
-  APPROVED
+  SENT // finalized: PDF frozen, employee emails it to the client
+  ACKNOWLEDGED // client acknowledgment recorded
 }
 
 /// Monthly submission/approval envelope over the daily rows. The PDF is generated from the daily data.
@@ -736,44 +768,58 @@ model MonthlyActivityReport {
   year         Int
   month        Int // 1-12
   deploymentId String? // snapshot of client/project for the header
-  status       MarStatus @default(DRAFT)
-  submittedAt  DateTime?
-  reviewedById String?
-  reviewedAt   DateTime?
-  reviewNote   String?
-  pdfStorageKey String?  // frozen copy on approval
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  status          MarStatus @default(DRAFT)
+  sentAt          DateTime? @db.Timestamptz(3) // finalized
+  pdfStorageKey   String? // frozen copy taken at finalize
+  acknowledgedAt  DateTime? @db.Date // date of the client's acknowledgment email
+  ackNote         String? // e.g. client signatory name
+  ackStorageKey   String? // optional: client reply (.eml/.msg/PDF) or signed PDF
+  ackRecordedById String?
+  reopenedById    String?
+  reopenedAt      DateTime? @db.Timestamptz(3)
+  reopenReason    String?
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
 
   @@unique([employeeId, year, month])
   @@index([year, month, status])
   @@map("monthly_activity_report")
 }
 
-// ───────────────────────────── Engagement: Staff Augmentation ─────────────────────────────
+// Staff Augmentation has no tables: it is a view over EmployeeDeployment on Staff-Aug S3Ps (Q21).
+// Phase 2.6 adds PushSubscription (docs/09-mobile-and-pwa.md §5.4).
 
-/// A named grouping of deployed employees (e.g. per client account). Level/position/project/dates are read live.
-model StaffAugEngagement {
-  id          String               @id @default(uuid(7))
-  name        String
-  description String?
-  createdById String?
-  assignments StaffAugAssignment[]
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+// ───────────────────────────── Notifications (docs/modules/notifications.md) ─────────────────────────────
 
-  @@map("staff_aug_engagement")
+enum NotificationKind {
+  ACTION // needs someone to act; stays in the Inbox "To do" until resolved
+  INFO // outcome / FYI; cleared by reading
 }
 
-model StaffAugAssignment {
-  engagementId String
-  engagement   StaffAugEngagement @relation(fields: [engagementId], references: [id], onDelete: Cascade)
-  employeeId   String
-  employee     Employee           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  createdAt    DateTime           @default(now())
+/// One row per recipient. Created in the same transaction as the event; email/push sent after commit.
+model Notification {
+  id             String           @id @default(uuid(7))
+  recipientId    String? // null for email-only recipients (Sales Rep, Solutions Manager)
+  recipient      User?            @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  recipientEmail String?
+  event          String // key from src/lib/notifications/catalog.ts, e.g. "user.registered"
+  kind           NotificationKind
+  title          String // no sensitive data (no salary/financials)
+  body           String?
+  link           String? // deep link; authz re-applies on open
+  entityType     String?
+  entityId       String?
+  dedupeKey      String?          @unique // e.g. "renewal:<deploymentId>:45:<recipient>" so cron reminders fire once
+  readAt         DateTime?        @db.Timestamptz(3)
+  resolvedAt     DateTime?        @db.Timestamptz(3) // ACTION: set for all recipients when anyone acts
+  emailedAt      DateTime?        @db.Timestamptz(3)
+  pushedAt       DateTime?        @db.Timestamptz(3)
+  createdAt      DateTime         @default(now()) @db.Timestamptz(3)
 
-  @@id([engagementId, employeeId])
-  @@map("staff_aug_assignment")
+  @@index([recipientId, resolvedAt, createdAt])
+  @@index([recipientId, readAt])
+  @@index([entityType, entityId, event])
+  @@map("notification")
 }
 
 // ───────────────────────────── Administration ─────────────────────────────
@@ -790,7 +836,7 @@ model AuditLog {
   actorEmail  String?
   ipAddress   String?
   userAgent   String?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([createdAt])
   @@index([module, entityId])
@@ -803,7 +849,7 @@ model AppSetting {
   key         String   @id // e.g. "org.name", "mar.reminderDay", "auth.allowedEmailDomains"
   value       Json
   updatedById String?
-  updatedAt   DateTime @updatedAt
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
 
   @@map("app_setting")
 }

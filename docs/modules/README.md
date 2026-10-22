@@ -6,8 +6,9 @@ Permission keys must match [03-rbac.md §3](../03-rbac.md#3-permission-catalog).
 
 | Section | Module | Phase |
 |---|---|---|
-| Administration | [Users](users.md) · [Groups & Roles](groups-roles.md) · [Maintenance](maintenance.md) · [Audit Trail](audit-trail.md) · [Settings & Profile](settings-profile.md) | 1 |
-| Workforce | [Employees](employees.md) · [Projects (S3P)](projects.md) | 1 |
+| Administration | [Users](users.md) · [Groups & Roles](groups-roles.md) · [Maintenance](maintenance.md) · [Audit Trail](audit-trail.md) · [Settings & Profile](settings-profile.md) · [Notifications & Inbox](notifications.md) | 1 (push in 2.6) |
+| Workforce | [Employees](employees.md) · [Projects (S3P)](projects.md) · [Data Import](data-import.md) | 1 |
 | Engagement | [Staff Augmentation](staff-augmentation.md) · [One-Lot Projects](one-lot-projects.md) | 2 |
 | Productivity | [Activity Reports & MAR](activity-reports.md) | 2 |
+| People & org | [Employee Recommendation](employee-recommendation.md) · [Certifications](certifications.md) · [Talent Acquisition](talent-acquisition.md) · [Device Inventory](device-inventory.md) · [Announcements](announcements.md) | 2b (stubs) |
 | Services | [Managed Services](managed-services.md) | 3 (stub) |

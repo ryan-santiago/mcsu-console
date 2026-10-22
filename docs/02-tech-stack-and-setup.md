@@ -8,7 +8,7 @@
 | Package manager | **pnpm 10** | `packageManager` field; `pnpm-lock.yaml` committed |
 | Framework | **Next.js 16** (App Router, RSC, Server Actions, Turbopack) | Read `node_modules/next/dist/docs/` for API changes |
 | Language | **TypeScript 5.x**, `strict`, `noUncheckedIndexedAccess` | |
-| Auth | **Better Auth** (email + password; `prismaAdapter`; plugins `twoFactor` (TOTP, mandatory for rank ≤ 10), `haveIBeenPwned`; allowed-domain hook) | Self-register → pending → approval. Microsoft Entra SSO can be added later via `socialProviders.microsoft` |
+| Auth | **Better Auth** (email + password; `prismaAdapter`; plugins `twoFactor` (TOTP, mandatory for rank ≤ 10), `haveIBeenPwned`; allowed-domain hook) | Self-register → pending → approval. No SSO: email + password (+ TOTP) only (Q14) |
 | ORM | **Prisma 7.10.x** with `@prisma/adapter-pg` (one driver for local Docker, CI and RDS) | `prisma-client` generator outputs to `src/generated/prisma`. **Pin `prisma@^7.10` / `@prisma/client@^7.10`.** As of Oct 2026, npm's `latest` tag points to `8.0.0-rc.*`, whose CLI has changed (no `validate` command), so don't install untagged. The draft schema is validated with 7.10.1 |
 | Database | **PostgreSQL 17**: AWS RDS (staging/prod), Docker container (local/CI) | [11-aws-deployment.md](11-aws-deployment.md) |
 | UI | **Tailwind CSS v4** + **shadcn/ui** + lucide-react | Tokens in `globals.css` (`@theme inline`) |
@@ -23,13 +23,14 @@
 | PWA | Next built-in `app/manifest.ts` + hand-written `public/sw.js`; `idb-keyval` (offline drafts); `web-push` (VAPID) | See [09-mobile-and-pwa.md](09-mobile-and-pwa.md). Serwist only if caching needs grow |
 | Rich text | Tiptap 3 | Work item descriptions, comments |
 | PDF | `@react-pdf/renderer` (server) | Monthly Activity Report. Replaces html2canvas + jsPDF |
+| Import | `exceljs` (.xlsx read + template generation), `papaparse` (.csv) | [Data Import](modules/data-import.md) |
 | Email | Microsoft Graph (`sendMail`) via an `EmailService` interface | Console driver in dev |
 | Env validation | `@t3-oss/env-nextjs` + Zod | Build fails on missing vars |
 | Dates | `date-fns` + `@date-fns/tz` (Asia/Manila) | |
 | Testing | **Vitest** (unit), **Playwright** (e2e) | |
 | Lint/format | ESLint 9 flat (`eslint-config-next`), Prettier + `prettier-plugin-tailwindcss` | |
 | Git hooks | `lefthook` (format, lint-staged, commitlint) | |
-| CI | GitHub Actions: install → typecheck → lint → test → build; Playwright on preview | |
+| CI | GitHub Actions: install → typecheck → lint → test → build; Playwright against staging after deploy | |
 | Hosting | **AWS `ap-southeast-1` (Singapore): EC2 + ALB + RDS**, Terraform | [ADR 0011](adr/0011-aws-ec2-rds.md), [11-aws-deployment.md](11-aws-deployment.md) |
 | Containers | Docker multi-stage (`output: "standalone"`), Compose with Postgres 17 | [10-docker.md](10-docker.md), [ADR 0010](adr/0010-docker-support.md) |
 | Observability | CloudWatch (logs, metrics, alarms), Sentry (errors), `pino` structured logs | |
@@ -53,21 +54,23 @@ pnpm prisma init
 ```
 
 ## Environment variables
-`.env.example` (committed). Every variable must also be declared in `src/lib/env.ts`.
+`.env.example` (committed; created in milestone 1.1). Every variable must also be declared in `src/lib/env.ts`.
 
 | Variable | Required | Purpose |
 |---|---|---|
 | `DATABASE_URL` | ✅ | Postgres URL (app user). On RDS add `sslmode=verify-full` + the RDS CA bundle |
 | `MIGRATE_DATABASE_URL` | migrate job | Postgres URL for the `migrator` (DDL) user, used by `prisma migrate deploy` |
+| `APP_ENV` | ✅ | `local` \| `staging` \| `prod`. Guards environment-specific behaviour (e.g. the seed refuses demo data in `prod`, `/design` is hidden in `prod`) |
 | `BETTER_AUTH_SECRET` | ✅ | 32+ random bytes |
 | `BETTER_AUTH_URL` | ✅ | e.g. `http://localhost:3000` |
-| `NEXT_PUBLIC_APP_URL` | ✅ | Absolute links in emails |
+| `APP_URL` | ✅ | Public base URL, read at **runtime** (absolute links in emails, PWA). There are no `NEXT_PUBLIC_*` variables, so the same image runs in every environment ([ADR 0014](adr/0014-build-once-runtime-config.md)) |
 | `SEED_SUPERADMIN_EMAIL` / `SEED_SUPERADMIN_NAME` / `SEED_SUPERADMIN_PASSWORD` | seed only | First Super Admin |
 | `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` | Phase 2 | Graph email / SharePoint |
 | `MAIL_SENDER` / `MAIL_REPLY_TO` / `MAIL_OVERRIDE_TO` | Phase 1.3 (password reset) | One shared sender mailbox via Graph (ADR 0009). Reply-to address. Dev redirect of all mail. Without Azure vars, the console driver logs emails instead |
-| `STORAGE_DRIVER` | Phase 2 | `local` \| `sharepoint` \| `s3` |
+| `STORAGE_DRIVER` | Phase 2.1 | `local` \| `sharepoint` ([ADR 0007](adr/0007-sharepoint-document-storage.md)) |
+| `SHAREPOINT_SITE_ID` / `SHAREPOINT_DRIVE_NAME` | Phase 2.1 (`sharepoint` driver) | Target site and document library |
 | `CRON_SECRET` | Phase 2 | Shared secret header sent by EventBridge to `/api/cron/*` |
-| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | Phase 2.6 | Web Push |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | Phase 2.6 | Web Push. The public key reaches the browser through server-rendered props, not a build-time variable |
 | `SENTRY_DSN` | optional | Error reporting |
 
 ## Scripts (`package.json`)
@@ -95,4 +98,4 @@ pnpm prisma init
 | Staging | RDS (staging database) | automatic on merge to `main` (ECR → SSM deploy) | catalog + groups + lookups + demo data |
 | Production | RDS (prod) | release tag + manual approval | catalog sync on every deploy (`migrate` job) |
 
-The seed is **idempotent** and always runs the **permission catalog sync** (see [03-rbac.md](03-rbac.md#catalog-sync)). Deploying a removed permission therefore also cleans it out of every group.
+There is **one seed script** for every environment. It creates only what's missing and skips existing records ([04 § Seed data](04-data-model.md#seed-data-fresh-start)). It always runs the **permission catalog sync** (see [03-rbac.md](03-rbac.md#catalog-sync)). Deploying a removed permission therefore also cleans it out of every group.

@@ -42,13 +42,14 @@ Open http://localhost:3000 and sign in with `SEED_SUPERADMIN_EMAIL` / `SEED_SUPE
 |---|---|
 | `deps` | `pnpm install --frozen-lockfile`, cached on `pnpm-lock.yaml` (BuildKit cache mount) |
 | `dev` | Full source + `prisma generate`, runs `pnpm dev` on `0.0.0.0:3000` |
-| `build` | `prisma generate` + `next build` with `output: "standalone"`. `NEXT_PUBLIC_*` values come from build args, because they're inlined at build time |
+| `build` | `prisma generate` + `next build` with `output: "standalone"`. **No environment-specific build args:** public config is read at runtime, so the same image is promoted from staging to prod ([ADR 0014](adr/0014-build-once-runtime-config.md)) |
 | `migrate` | Inherits `build` (has the Prisma CLI and tsx), runs `prisma migrate deploy && seed`. A one-off job, **never** run on app start |
 | `runner` | `node:22-alpine`, non-root `nextjs` user, only `.next/standalone` + static + `public`, `HEALTHCHECK` on `/api/health` |
 
 **App requirements** (implemented in Phase 1.1):
 - `next.config.ts`: `output: "standalone"`.
-- `src/app/api/health/route.ts`: returns `200 {status:"ok"}` after a `SELECT 1`. Unauthenticated, no data.
+- `src/app/api/health/route.ts`: **liveness**. Returns `200 {status:"ok"}` without touching the database, so a short DB blip doesn't mark the only instance unhealthy. Used by the Docker `HEALTHCHECK` and the ALB target group.
+- `src/app/api/ready/route.ts`: **readiness**. Returns `200` after a `SELECT 1`, `503` otherwise. Used by `deploy.sh` to decide whether to keep or roll back a release. Both routes are unauthenticated and return no data.
 - `src/lib/env.ts`: honours `SKIP_ENV_VALIDATION=1` (build stage only). Runtime still validates.
 - `.gitignore` includes `.env.docker`.
 
@@ -79,4 +80,4 @@ export const prisma = globalForPrisma.prisma ?? new PrismaClient({ adapter });
 Staging and production run this image on AWS EC2 via ECR and an SSM deploy script. See [11-aws-deployment.md §5](11-aws-deployment.md#5-deployment-method). Images are built for **arm64** (Graviton) with `docker buildx`. Local development on x86 still works with a native build.
 
 ## CI
-The GitHub Actions job `docker` builds the `runner` target on every PR (no push) to catch Dockerfile drift. On merge to `main` it pushes `mcsu-console:<sha>` to **ECR** and deploys to staging. Release tags deploy to production after approval.
+The GitHub Actions job `docker` builds the `runner` target on every PR (no push) to catch Dockerfile drift. On merge to `main` it pushes `mcsu-console:<sha>` (runner) and `mcsu-console:<sha>-migrate` to **ECR** and deploys to staging. Release tags copy those same images to the prod ECR by digest and deploy them after approval. Production never rebuilds ([ADR 0014](adr/0014-build-once-runtime-config.md)).

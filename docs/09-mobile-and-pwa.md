@@ -47,9 +47,9 @@ Bottom tabs are **permission-aware** (same `can()` filter as the sidebar). A use
 
 ## 4. Phone-first flows
 1. **Log today** (Employee): Home → "Log today" card → prefilled date, status chips (Present / Leave / Holiday), time in/out pickers, items as an add-another list → Save. **Works offline** (draft queued).
-2. **My MAR**: Reports tab → current month summary (days logged / missing highlighted) → Preview PDF → Submit.
+2. **My MAR**: Reports tab → current month summary (days logged / missing highlighted) → Preview PDF → Finalize & download (then email it to the client) → later, Record client acknowledgment.
 3. **My work**: Work tab → items assigned to me across One-Lots, grouped by status → tap → detail drawer → change status / comment.
-4. **Approvals inbox**: Inbox tab → unified list (pending users, MARs, profile change requests, later tickets) → swipe or buttons Approve / Return, with a note.
+4. **Inbox (To do)**: Inbox tab → every open ACTION notification (pending users, profile change requests, my MAR reminders, renewals, later tickets) → tap through to act, or Approve / Reject inline where the action allows it ([notifications](modules/notifications.md)).
 5. **Notifications**: Inbox tab, second segment → deep links into the item.
 
 The Home screen on phone is a **personal dashboard**: today's log status, MAR progress, my open work items, pending approvals (if any), and renewals due (if scoped).

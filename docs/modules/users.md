@@ -15,7 +15,7 @@ Approve registrations, assign groups, suspend or reactivate accounts, and link a
 | `user.update` | Change group, suspend/reactivate, link/unlink employee, revoke sessions |
 | `user.delete` | Delete a user (only if no audit-significant ownership; otherwise suspend) |
 
-Rank rules R2–R4, R8–R11 from [03-rbac.md](../03-rbac.md#5-policy-rules) apply to every action.
+Rank rules R2–R4, R8–R11, R14 (audience match) and R15 (2FA) from [03-rbac.md](../03-rbac.md#5-policy-rules) apply to every action.
 
 ## Screens
 - **User list:** table with Identity, Group (badge + mono rank), Status pill, Last login, Created, and an actions menu.
@@ -29,7 +29,7 @@ Rank rules R2–R4, R8–R11 from [03-rbac.md](../03-rbac.md#5-policy-rules) app
 
 ## Business rules
 1. On registration: lowercase the email, check the allowed domains ([Q8](../08-open-questions.md)), create a `PENDING` user with `groupId = null`, and auto-link the employee where `workEmail` matches.
-2. Better Auth `session.create.before` hook: only `ACTIVE` users get sessions. Pending users are redirected to `/pending`.
+2. Better Auth `session.create.before` hook: `SUSPENDED` users never get a session. `PENDING` users do get one, but `requireUser()` lets them reach only `/pending` and sign-out (no group means no grants anyway).
 3. On approve: set `ACTIVE`, the group, `approvedAt/By`; audit `user.approve`; email "Your account is approved".
 4. On reject: delete the pending user and audit it (keep the email in the audit log).
 5. On suspend or group change: revoke all sessions in the same transaction (R10).
@@ -38,7 +38,7 @@ Rank rules R2–R4, R8–R11 from [03-rbac.md](../03-rbac.md#5-policy-rules) app
 ## Security
 - **Allowed domains:** self-registration is rejected unless the email domain is in `AppSetting auth.allowedEmailDomains` (default `["questronix.com.ph"]`). Client users never self-register. They're invited ([ADR 0009](../adr/0009-staff-and-client-accounts.md)).
 - The User Management list gets a **Type** filter (Staff · Client) in Phase 3.
-- **2FA:** TOTP is mandatory for rank ≤ 10 (Super Admin, Administrator). A user in those groups without 2FA is forced to `/settings/security/2fa-setup` before anything else. Backup codes are issued at setup. Assigning someone to a rank ≤ 10 group requires them to enrol on their next login.
+- **2FA (R15, built in milestone 1.3):** TOTP is mandatory for rank ≤ 10 (Super Admin, Administrator). A user in those groups without 2FA is forced to `/settings/security/2fa-setup` before anything else. Backup codes are issued at setup. Assigning someone to a rank ≤ 10 group requires them to enrol on their next login.
 - Login, registration and password reset are rate-limited.
 
 ## Acceptance criteria

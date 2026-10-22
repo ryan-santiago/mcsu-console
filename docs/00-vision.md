@@ -18,10 +18,10 @@ MCSU (under QNX QSERV) runs three kinds of work for clients. Today it uses sprea
 | Persona | Typical group | Needs |
 |---|---|---|
 | Department Head / Admin | Administrator (rank 10) | See everything, manage users and groups, approve |
-| Manager / Unit Manager | Manager (rank 20) | All employees and projects, dashboards, renewals |
-| Team Lead | Team Lead (rank 30) | **Only their team's** employees, projects and reports. Approve their team's items |
+| Manager / Unit Manager | Manager (rank 20) | All employees and projects, dashboards, renewals, approve new registrations |
+| Team Lead | Team Lead (rank 30) | **Only their team's** employees, projects and reports. Review their team's change requests, monitor MARs |
 | Employee | Employee (rank 40) | Their own profile, activity reports, MAR, assigned work items |
-| Viewer / Auditor | Viewer (rank 50) | Read-only |
+| Viewer | Viewer (rank 50) | Read-only, own records. An **auditor** is set up by granting `audit.view` (and read permissions at the scope they need) to a group, not through this default group |
 | System owner | Super Admin (rank 0) | Break-glass full access. Exactly one or two people |
 
 ## Principles
@@ -32,5 +32,6 @@ MCSU (under QNX QSERV) runs three kinds of work for clients. Today it uses sprea
 5. **Docs before code.** Modules are specified in `docs/modules/` before they're built.
 
 ## In scope / out of scope (v1)
-- **In:** everything in Phases 1–2 of the [roadmap](06-roadmap.md).
-- **Out (for now):** payroll, leave management, client-facing portal, mobile app, data migration from `mcsu-app` (fresh start, as decided).
+- **In:** everything in Phases 1, 2 and 2b of the [roadmap](06-roadmap.md).
+- **Out of v1:** payroll, leave management, a **native** (app-store) mobile app (phones use the installable PWA, which *is* in scope), data migration from `mcsu-app` (fresh start, as decided).
+- **After v1 (Phase 3):** the client portal and Managed Services ticketing.

@@ -344,7 +344,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
 
   <section aria-labelledby="h-deploy">
     <h2 id="h-deploy">Deployment method: every release</h2>
-    <p>The same steps run for both environments. <strong>Staging</strong> updates automatically when a change is merged. <strong>Production</strong> updates only from a release tag, after a manual approval, and takes a database snapshot first.</p>
+    <p>The same steps run for both environments. <strong>Staging</strong> updates automatically when a change is merged. <strong>Production</strong> updates only from a release tag, after a manual approval. It reuses the exact image that was tested on staging (no rebuild) and takes a database snapshot first.</p>
     <figure>
       <div class="well compact">
         <svg viewBox="0 0 1160 250" role="img" aria-label="Deploy pipeline: GitHub Actions tests and builds the image, pushes it to ECR, then Systems Manager runs the deploy script on EC2, which applies database changes with the migrate job and starts the new app. If the health check fails, it rolls back to the previous image.">
@@ -375,7 +375,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
           <text class="num" x="964" y="34">5</text>
           <rect class="box key" x="964" y="42" width="180" height="72" rx="12"/>
           <text class="t" x="1054" y="72" text-anchor="middle">Start new app</text>
-          <text class="s" x="1054" y="92" text-anchor="middle">waits for /api/health</text>
+          <text class="s" x="1054" y="92" text-anchor="middle">waits for /api/ready</text>
 
           <line class="wire main" x1="206" y1="78" x2="254" y2="78" marker-end="url(#bh)"/>
           <text class="lbl brand halo" x="230" y="134" text-anchor="middle">push</text>
@@ -406,7 +406,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
   2. pull the new image from ECR
   3. run the migrate job (schema changes)
   4. start the new app
-  5. wait for /api/health
+  5. wait for /api/ready (app + database)
      ✗ unhealthy → restart previous version</pre>
       </div>
       <div>

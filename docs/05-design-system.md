@@ -32,7 +32,9 @@ Two independent axes, both applied on `<html>`:
 - **Mode:** `class="light|dark"` via `next-themes` (`system` default).
 - **Palette:** `data-palette="qserv|ember|midnight|graphite"` (default `qserv`).
 
-Both are saved in `User.preferences` (and in a cookie to avoid a flash). They can be changed from the top-bar theme menu and **Settings → Appearance**, which shows four swatch cards with a live preview.
+A third, smaller setting is **density** (`comfortable` default / `compact`, applied as `data-density` on `<html>`). Compact lowers table rows from 44px to 36px and card padding from `p-5` to `p-4` on ≥ md only. Phones always use comfortable, so tap targets stay ≥ 44px.
+
+All three are saved in `User.preferences` (and in a cookie to avoid a flash). They can be changed from the top-bar theme menu and **Settings → Appearance**, which shows four swatch cards with a live preview.
 
 ```css
 /* globals.css (sketch) */
@@ -119,7 +121,7 @@ Semantic tokens shared by all palettes: `success`, `warning`, `destructive`, `in
 - Headcount trend
 - Deployment by client
 - Renewal pipeline
-- MAR submission status this month
+- MAR status this month (Draft / Sent / Acknowledged)
 - One-Lot health (open items, sprint progress)
 
 All widgets are **scope-aware**: a Team Lead's dashboard shows only their teams.

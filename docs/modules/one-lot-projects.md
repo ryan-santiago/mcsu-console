@@ -21,9 +21,9 @@ The pages and components to port are mapped in mcsu-app `src/components/one-lot-
 | `onelot.create` | — | Create a workspace (must link S3Ps the user can `project.view`) |
 | `onelot.manage` | ✅ | Settings, members, S3P links, sprints (create/start/complete), board columns |
 | `onelot.work` | ✅ | Create/edit work items, move cards, comment, upload documents |
-| `onelot.delete` | — | Delete or archive a workspace |
+| `onelot.delete` | ✅ | Archive a workspace (soft: sets `archivedAt`; restorable). There's no hard delete |
 
-**Membership:** an `OWNER` member is granted manage-level actions inside that workspace even without `onelot.manage` (it's a resource-level role). `MEMBER` gets work-level actions and `VIEWER` is read-only. The effective right is the **union** of the group grant (in scope) and the membership role.
+**Membership:** an `OWNER` member is granted manage-level actions inside that workspace even without `onelot.manage` (it's a resource-level role). `MEMBER` gets work-level actions and `VIEWER` is read-only. The effective right is the **union** of the group grant (in scope) and the membership role. This is the only resource-level role in the system. It's specified in [03-rbac.md §5b](../03-rbac.md#5b-resource-roles-one-lot-membership) and [ADR 0013](../adr/0013-one-lot-resource-roles.md).
 
 ## Data
 `OneLotProject`, `OneLotProjectLink`, `OneLotMember`, `Sprint`, `BoardColumn`, `WorkItem`, `WorkItemComment`, `OneLotDocument`.
@@ -36,7 +36,7 @@ The pages and components to port are mapped in mcsu-app `src/components/one-lot-
 - Moving to an `isDone` column sets `doneAt`; moving out clears it.
 - Ordering uses fractional indexes (one-row updates). Moves are optimistic and roll back on error.
 - Assignees must be workspace members.
-- Rich text is sanitized on save. Mentions (`@user`) notify (Phase 2.6).
+- Rich text is sanitized on save. Assignments and mentions (`@user`) create notifications ([notifications](notifications.md)).
 
 ## Acceptance criteria
 - [ ] Creating a workspace without an S3P link fails on the server.

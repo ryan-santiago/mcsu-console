@@ -22,6 +22,7 @@ Reference data for every module, plus **Teams and Team Leads**, which drive TEAM
 | Sales Representatives | `SalesRepresentative` | email |
 | Solutions Managers | `SolutionsManager` | email |
 | Job Profiles | `JobProfile` | position + level, description, qualifications |
+| Holidays | `Holiday` | date, name, type (Regular / Special non-working). Used for working-day calculations (MAR missing days, reminders) |
 
 ## Screens
 - Generic `LookupTable` (name, active toggle, usage count, edit/delete). Delete is only offered when the usage count is 0; otherwise the row is deactivated.

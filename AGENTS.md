@@ -9,7 +9,8 @@ Next.js 16 changed APIs (async `params`/`searchParams`/`cookies()`/`headers()`, 
 1. **Never branch on a group name or id.** `if (user.group.name === "Team Lead")` is a bug. Use:
    - `can(user, "employee.update")`: does the user hold the permission at any scope?
    - `scopeWhere(user, "employee.view")`: the Prisma `where` that limits rows to the user's scope.
-   - `assertCanManage(actor, target)`: rank checks for users and groups.
+   - `assertCanManageUser` / `assertCanAssignGroup` / `assertCanEditGroup`: rank checks for users and groups.
+   - The only authorization path outside group grants is One-Lot membership (`membershipAllows`, `oneLotWhere` in `src/lib/authz/resource.ts`). Don't add others without an ADR ([ADR 0013](docs/adr/0013-one-lot-resource-roles.md)).
 2. **Every server action and query authorizes on the server**, through `authedAction()` / `authedQuery()` (see [docs/07-conventions.md](docs/07-conventions.md)). Hiding things in the UI is only cosmetic.
 3. **Every list and detail query applies `scopeWhere`.** A record outside the user's scope returns `notFound()`, not 403, so its existence isn't leaked.
 4. **Rank: a lower number means more authority.** Super Admin is `0`. Comparisons are **strict** (`actor.rank < target.rank`). Equal rank is never enough.
@@ -20,9 +21,9 @@ Full spec: [docs/03-rbac.md](docs/03-rbac.md).
 
 ## 2. Data
 - Prisma is the only data access path. Don't write raw SQL unless a query can't be expressed in Prisma, and if you do, wrap it in `src/server/<module>/queries.ts` with a comment.
-- Every create, update or delete writes an audit entry (`recordAudit` + `diffFields`). `authedAction` does this when you return `audit` metadata.
-- Soft-delete business records (`deletedAt`). Hard-delete only join rows and drafts.
-- Store money as `Decimal(12,2)`. Store dates without a time as `@db.Date`. Store timestamps as `timestamptz`.
+- Every create, update or delete writes an audit entry (`recordAudit` + `diffFields`). Inside `authedAction`, call the `audit()` function it hands to the handler, which writes in the same transaction (see §4).
+- Soft-delete business records (`deletedAt`; One-Lot workspaces use `archivedAt`). Hard-delete only join rows, drafts and rejected pending users.
+- Store money as `Decimal(12,2)`. Store dates without a time as `@db.Date`. Store timestamps as `timestamptz` (`@db.Timestamptz(3)` on every `DateTime` that isn't a date).
 - Don't store anything you can derive (gross profit, renewal status, "is resigned"). Compute it.
 
 ## 3. Code layout
@@ -36,9 +37,10 @@ src/components/ui/...                shadcn primitives (don't edit by hand excep
 ```
 
 ## 4. Server actions
-- Return `{ ok: true, data } | { ok: false, error, fieldErrors? }`. Don't throw for expected failures, and don't `redirect()` inside an action. The caller navigates.
+- Return `{ ok: true, data } | { ok: false, error, fieldErrors? }`. An action never throws to its caller. Inside the handler, throw the typed errors (`NotFoundError`, `ConflictError`, `PolicyError`), and `authedAction` maps them to results. Don't `redirect()` inside an action. The caller navigates.
 - Validate input with the module's Zod schema, also on the server.
-- After a mutation, call `revalidatePath`/`updateTag` for the affected list and detail pages.
+- After a mutation, revalidate the affected list and detail pages through the `revalidate` option of `authedAction`, which runs after the commit.
+- Audit: call `audit({ module, action, entityId, entityLabel, changes })` inside the handler (same transaction).
 
 ## 5. UI
 - Use shadcn primitives and theme tokens (`bg-card`, `text-muted-foreground`, `text-brand`). **Never use raw hex or Tailwind palette colours** (`bg-blue-600`) in components.

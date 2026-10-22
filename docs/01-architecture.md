@@ -48,15 +48,18 @@ mcsu-console/
 │  │  │  ├─ employees/ [id]/ new/
 │  │  │  ├─ projects/  [id]/ new/
 │  │  │  ├─ one-lot/   [id]/(summary|backlog|board|calendar|documents)
-│  │  │  ├─ activity-reports/ monitoring/
+│  │  │  ├─ activity-reports/ new/ [id]/ monthly/[year]/[month]/ monitoring/
 │  │  │  ├─ staff-augmentation/
-│  │  │  └─ admin/ users | groups | groups/[id] | audit | maintenance | settings
-│  │  ├─ api/auth/[...all]/route.ts
+│  │  │  ├─ my-work/                # phone "Work" tab: my items across One-Lots (2.3)
+│  │  │  ├─ inbox/                  # approvals + notifications (2.6)
+│  │  │  ├─ settings/               # profile, security, appearance, organization
+│  │  │  └─ admin/ users | groups | groups/[id] | audit | maintenance
+│  │  ├─ api/auth/[...all]/  api/health/  api/ready/  api/cron/[job]/
 │  │  ├─ layout.tsx  globals.css  error.tsx  not-found.tsx  forbidden.tsx
 │  ├─ components/ ui/ layout/ brand/ <module>/
 │  ├─ server/<module>/{queries,actions,types}.ts
 │  ├─ lib/
-│  │  ├─ authz/ catalog.ts policy.ts scope.ts session.ts action.ts
+│  │  ├─ authz/ catalog.ts policy.ts scope.ts resource.ts session.ts action.ts
 │  │  ├─ audit.ts  db.ts  auth.ts  auth-client.ts  env.ts  navigation.ts
 │  │  └─ validation/
 │  ├─ hooks/
@@ -67,19 +70,19 @@ mcsu-console/
 
 ## Request lifecycle (read)
 1. `proxy.ts` checks that the session cookie exists. If it doesn't, it redirects to `/login?next=…`.
-2. `(app)/layout.tsx` calls `requireUser()`. That loads the session, user, group, grants and led-team ids **from the database on every request**, memoized with React `cache()`. Pending or suspended users are redirected to `/pending`.
+2. `(app)/layout.tsx` calls `requireUser()`. That loads the session, user, group, grants and led-team ids **from the database on every request**, memoized with React `cache()`. Pending users (who do get a session, so the app knows who they are) are redirected to `/pending`. Suspended users can't hold a session at all (sessions are revoked on suspend and refused at sign-in). Users in a rank ≤ 10 group without 2FA are redirected to 2FA setup (R15).
 3. The sidebar is built from `navigation.ts`, filtered by `can()`.
 4. The page calls `requirePermission("employee.view")`, which renders the `forbidden()` page if it fails.
 5. The query runs `authedQuery("employee.view", …)`, which applies `scopeWhere(user, "employee.view")` to the Prisma `where`.
 
 ## Request lifecycle (write)
-`authedAction({ permission, schema, audit }, handler)`:
+`authedAction({ permission, schema, resource?, revalidate? }, handler)` (full signature in [07-conventions.md](07-conventions.md#server-actions-the-authedaction-wrapper)):
 1. Resolve the current user (active only).
-2. `can(user, permission)`. If it fails, return `{ ok:false, error:"FORBIDDEN" }`.
+2. `can(user, permission)` (or, for One-Lot actions with `resource`, `can() || membershipAllows()`, see [03 §5b](03-rbac.md#5b-resource-roles-one-lot-membership)). If it fails, return `{ ok:false, error:"FORBIDDEN" }`.
 3. `schema.safeParse(input)`. If it fails, return `{ ok:false, error:"VALIDATION", fieldErrors }`.
 4. Run the handler inside `prisma.$transaction`. The handler **re-checks scope** on the target row (e.g. `findFirst({ where: { id, ...scopeWhere(...) } })`).
-5. Write the audit entry in the same transaction.
-6. `revalidatePath`/`updateTag`, then return `{ ok:true, data }`.
+5. The handler writes the audit entry with `audit()` in the same transaction.
+6. After the commit: `revalidatePath`/`updateTag` for the paths from `revalidate`, then return `{ ok:true, data }`.
 
 ## Caching
 - Authz data is **never cached across requests** (fixes the mcsu-app 5-minute cookie-cache bug). Better Auth `session.cookieCache` stays **disabled** for user/group data.
@@ -87,7 +90,7 @@ mcsu-console/
 - Dashboards may cache for 60s with tags. Scoped dashboards must include the user's scope key in the cache key.
 
 ## Files and documents
-Phase 2 adds documents (One-Lot, certifications, MAR attachments) behind a `DocumentStorage` interface. There are two implementations: `local` (dev) and `sharepoint` (preview/prod, via Microsoft Graph). See [ADR 0007](adr/0007-sharepoint-document-storage.md).
+Phase 2 adds documents (frozen MAR PDFs in 2.1, deployment contracts in 2.2, One-Lot documents in 2.4) behind a `DocumentStorage` interface. There are two implementations: `local` (dev/test) and `sharepoint` (staging/prod, via Microsoft Graph). The SharePoint driver ships with milestone **2.1**, its first consumer. See [ADR 0007](adr/0007-sharepoint-document-storage.md).
 
 ## Background jobs
-Phase 2+ needs jobs such as contract renewal reminders and MAR reminders. Use **EventBridge scheduled API destinations** calling signed `/api/cron/*` route handlers ([11-aws-deployment.md §5](11-aws-deployment.md#7-scheduled-jobs)). No separate worker for now.
+Phase 2+ needs jobs such as contract renewal reminders and MAR reminders. Use **EventBridge scheduled API destinations** calling signed `/api/cron/*` route handlers ([11-aws-deployment.md §7](11-aws-deployment.md#7-scheduled-jobs)). No separate worker for now.
