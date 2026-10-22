@@ -1,0 +1,122 @@
+# Every PR: typecheck · lint · unit tests (+ migrations against Postgres 17) · e2e · Docker build.
+# See docs/07-conventions.md § Git & delivery and docs/11-aws-deployment.md § Workflows.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  APP_ENV: local
+  APP_URL: http://127.0.0.1:3200
+  DATABASE_URL: postgresql://mcsu:mcsu@localhost:5432/mcsu_console
+  MIGRATE_DATABASE_URL: postgresql://mcsu:mcsu@localhost:5432/mcsu_console
+  BETTER_AUTH_SECRET: ci-only-secret-that-is-at-least-32-characters
+  BETTER_AUTH_URL: http://127.0.0.1:3200
+  # Seeded Super Admin used by the e2e personas (tests/fixtures/personas.ts). CI-only credentials.
+  SEED_SUPERADMIN_EMAIL: mcsu_automations@questronix.com.ph
+  SEED_SUPERADMIN_NAME: MCSU Automations
+  SEED_SUPERADMIN_PASSWORD: ci-only-Super-Admin-pa55word
+  PRISMA_HIDE_UPDATE_MESSAGE: "1"
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: mcsu
+          POSTGRES_PASSWORD: mcsu
+          POSTGRES_DB: mcsu_console
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U mcsu -d mcsu_console"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - name: Migrations apply cleanly and the seed is idempotent
+        run: |
+          pnpm db:deploy
+          pnpm db:seed
+          pnpm db:seed
+      - run: pnpm test
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: check
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: mcsu
+          POSTGRES_PASSWORD: mcsu
+          POSTGRES_DB: mcsu_console
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U mcsu -d mcsu_console"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:deploy && pnpm db:seed
+      - run: pnpm exec playwright install --with-deps chromium webkit
+      - run: pnpm test:e2e
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build runner image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runner
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build migrate image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: migrate
+          push: false
+          cache-from: type=gha

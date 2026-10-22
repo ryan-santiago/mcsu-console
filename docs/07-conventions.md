@@ -54,6 +54,8 @@ export const updateEmployee = authedAction(
 - The handler runs inside `prisma.$transaction`. `audit()` and `notify()` ([notifications](modules/notifications.md)) write in that same transaction; emails and push go out after the commit. The wrapper calls `revalidatePath`/`updateTag` **only after the commit succeeds**, so a rolled-back write never invalidates caches.
 - **Actions never throw to the caller.** Inside the handler, expected failures throw typed errors, and the wrapper turns them into `{ ok: false, … }` results.
 - Expected failures throw typed errors (`NotFoundError`, `ConflictError`, `PolicyError`), which the wrapper maps to results. Unknown errors are logged to Sentry and returned as `UNKNOWN`. Stack traces never reach the client.
+- `permission` lists every permission required (all of them, at any scope). Use `permission: []` only for actions on the caller's own data (e.g. marking their notifications read), and filter by `user.id` in the handler.
+- The handler also receives `notify()` and `resolve()` ([notifications](modules/notifications.md)): rows are written in the same transaction, emails go out after the commit.
 - Clients call actions through `useActionMutation(action)` (TanStack Query `useMutation` + sonner toasts + RHF `setError` for `fieldErrors`).
 
 ## Queries
@@ -71,7 +73,8 @@ export const updateEmployee = authedAction(
 - Auth events (`login`, `logout`, `login_failed`, `password_reset`) are recorded via Better Auth hooks.
 
 ## Errors & UX
-- `error.tsx` per route group, `not-found.tsx` and `forbidden.tsx` (Next `forbidden()` API).
+- `error.tsx` per route group, `not-found.tsx` and `forbidden.tsx` (Next `forbidden()` API, still experimental in 16.4: `experimental.authInterrupts` is on in `next.config.ts`).
+- Forms read values on submit (react-hook-form `register`, or `FormData`) rather than controlled state, so input typed before hydration on slow phones isn't lost.
 - Toasts for action results. Inline field errors for validation.
 - Optimistic UI only for board and backlog moves (with rollback).
 
@@ -82,7 +85,7 @@ export const updateEmployee = authedAction(
 | Integration | Vitest + Postgres 17 (GitHub Actions service container / local Docker `db`) | `scopeWhere` against real data fixtures, actions end-to-end |
 | E2E | Playwright (desktop + Pixel 7 + iPhone 14 projects) | Login per persona (Super Admin, Admin, Team Lead A, Team Lead B, Employee), scoped visibility, rank-rule denials, visual snapshots of `/design` |
 
-Fixture personas live in `tests/fixtures/personas.ts` and are reused by integration and e2e tests.
+Fixture personas live in `tests/fixtures/personas.ts` and are reused by integration and e2e tests. **Tests never sign in as the seeded Super Admin** (`SEED_SUPERADMIN_*`): it's a real account. The e2e global setup creates and resets its own `e2e.*@questronix.com.ph` personas instead.
 
 ## Lint rules (custom, set up in milestone 1.1)
 - Ban comparing group names or ids (`group.name === …`, `groupId === …`) outside `src/lib/authz/**` and the seed ([03 Lessons](03-rbac.md#lessons-from-mcsu-app)).
@@ -93,7 +96,7 @@ Fixture personas live in `tests/fixtures/personas.ts` and are reused by integrat
 - Trunk-based: short-lived branches `feat/…`, `fix/…`, `docs/…`. PRs into `main`, squash merge.
 - **Conventional Commits** (`feat(employees): add deployment history`), enforced by commitlint.
 - Every PR: CI must be green (typecheck, lint, unit + integration tests, Docker build), and one reviewer approves. Merges to `main` auto-deploy to **staging**. Release tags deploy to **production** after manual approval.
-- Migrations: `prisma migrate dev --name <change>`. Never edit an applied migration. Destructive changes use expand → migrate → contract across two releases.
+- Migrations: `prisma migrate dev --name <change>`, then **`pnpm db:generate`** (Prisma 7's `migrate dev` no longer regenerates the client; a stale client makes Better Auth report a schema mismatch). Never edit an applied migration. Destructive changes use expand → migrate → contract across two releases.
 - Releases are tagged `vX.Y.Z`, and `CHANGELOG.md` is generated from commits.
 
 ## Security checklist

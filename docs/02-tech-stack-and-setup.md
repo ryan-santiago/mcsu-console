@@ -5,13 +5,13 @@
 | Concern | Choice | Notes |
 |---|---|---|
 | Runtime | Node.js 22 LTS | `.nvmrc` + `engines` |
-| Package manager | **pnpm 10** | `packageManager` field; `pnpm-lock.yaml` committed |
-| Framework | **Next.js 16** (App Router, RSC, Server Actions, Turbopack) | Read `node_modules/next/dist/docs/` for API changes |
-| Language | **TypeScript 5.x**, `strict`, `noUncheckedIndexedAccess` | |
-| Auth | **Better Auth** (email + password; `prismaAdapter`; plugins `twoFactor` (TOTP, mandatory for rank ≤ 10), `haveIBeenPwned`; allowed-domain hook) | Self-register → pending → approval. No SSO: email + password (+ TOTP) only (Q14) |
+| Package manager | **pnpm 10** (`pnpm@10.34.7`) | Pinned by the `packageManager` field (Corepack). `pnpm-lock.yaml` committed. Build scripts allowed only for the packages in `pnpm-workspace.yaml` |
+| Framework | **Next.js 16.4** (App Router, RSC, Server Actions, Turbopack, **Cache Components + Partial Prefetching**) | Read `node_modules/next/dist/docs/` for API changes. Caching rules: [ADR 0015](adr/0015-cache-components.md) |
+| Language | **TypeScript 5.9**, `strict`, `noUncheckedIndexedAccess` | Stay on 5.x for now: TypeScript 7 (native compiler) is out, but move only once Next, typescript-eslint and Prisma support it |
+| Auth | **Better Auth 1.7** (email + password; `prismaAdapter`; plugins `twoFactor` (TOTP, employee-linked users only; mandatory at rank ≤ 10), `haveIBeenPwned`; allowed-domain hook) | Self-register → pending → approval. No SSO: email + password (+ TOTP) only (Q14) |
 | ORM | **Prisma 7.10.x** with `@prisma/adapter-pg` (one driver for local Docker, CI and RDS) | `prisma-client` generator outputs to `src/generated/prisma`. **Pin `prisma@^7.10` / `@prisma/client@^7.10`.** As of Oct 2026, npm's `latest` tag points to `8.0.0-rc.*`, whose CLI has changed (no `validate` command), so don't install untagged. The draft schema is validated with 7.10.1 |
 | Database | **PostgreSQL 17**: AWS RDS (staging/prod), Docker container (local/CI) | [11-aws-deployment.md](11-aws-deployment.md) |
-| UI | **Tailwind CSS v4** + **shadcn/ui** + lucide-react | Tokens in `globals.css` (`@theme inline`) |
+| UI | **Tailwind CSS v4** (via the `@tailwindcss/turbopack` loader, no PostCSS config) + **shadcn/ui** (Radix base, `nova` style; class merging via shadcn's `cn` package) + lucide-react | Tokens in `globals.css` (`@theme inline`), contrast-tested in `tests/unit/design-tokens.test.ts` |
 | Theme | `next-themes` (light/dark/system) + `data-palette` attribute | See [05-design-system.md](05-design-system.md) |
 | Forms | react-hook-form + `@hookform/resolvers` + **Zod 4** | Same schema on client and server |
 | Tables | TanStack Table v8 + shadcn Data Table | Server-side paging/sort/filter |
@@ -27,8 +27,8 @@
 | Email | Microsoft Graph (`sendMail`) via an `EmailService` interface | Console driver in dev |
 | Env validation | `@t3-oss/env-nextjs` + Zod | Build fails on missing vars |
 | Dates | `date-fns` + `@date-fns/tz` (Asia/Manila) | |
-| Testing | **Vitest** (unit), **Playwright** (e2e) | |
-| Lint/format | ESLint 9 flat (`eslint-config-next`), Prettier + `prettier-plugin-tailwindcss` | |
+| Testing | **Vitest 4** (unit), **Playwright** (e2e: desktop Chrome, Pixel 7, iPhone 14) | |
+| Lint/format | ESLint 9 flat (`eslint-config-next`) + project rules ([07 § Lint rules](07-conventions.md#lint-rules-custom-set-up-in-milestone-11)), Prettier + `prettier-plugin-tailwindcss` | Stay on ESLint 9 until `eslint-config-next` supports 10 |
 | Git hooks | `lefthook` (format, lint-staged, commitlint) | |
 | CI | GitHub Actions: install → typecheck → lint → test → build; Playwright against staging after deploy | |
 | Hosting | **AWS `ap-southeast-1` (Singapore): EC2 + ALB + RDS**, Terraform | [ADR 0011](adr/0011-aws-ec2-rds.md), [11-aws-deployment.md](11-aws-deployment.md) |
@@ -41,17 +41,19 @@
 - For deploys: AWS account access (IAM Identity Center), AWS CLI + Session Manager plugin, Terraform
 - Optional: an Azure app registration for Graph email and SharePoint (Phase 2)
 
-## Scaffolding (Phase 1, step 1)
+## Scaffolding (done in milestone 1.1)
+The project was created with `create-next-app@16.4.2` (TypeScript, Tailwind, ESLint, App Router, `src/`, Turbopack), then `shadcn@4.22.1 init -t next -b radix -p nova`. To set up a fresh clone:
+
 ```bash
-pnpm create next-app@latest mcsu-console --ts --tailwind --eslint --app --src-dir --turbopack --import-alias "@/*" --use-pnpm
-pnpm add better-auth @prisma/client@^7.10 @prisma/adapter-pg zod react-hook-form @hookform/resolvers \
-  @tanstack/react-table @tanstack/react-query nuqs next-themes lucide-react date-fns @date-fns/tz sonner server-only @t3-oss/env-nextjs
-pnpm add -D prisma@^7.10 tsx vitest @vitest/coverage-v8 @playwright/test prettier prettier-plugin-tailwindcss lefthook
-pnpm dlx shadcn@latest init
-pnpm dlx shadcn@latest add button card input label textarea select checkbox switch badge avatar dropdown-menu dialog sheet \
-  tabs table tooltip popover command separator skeleton sonner sidebar breadcrumb form chart scroll-area alert-dialog
-pnpm prisma init
+corepack enable                      # uses pnpm@10.34.7 from package.json
+pnpm install                         # also runs prisma generate (postinstall)
+cp .env.example .env.local           # fill BETTER_AUTH_SECRET
+docker compose up -d db              # Postgres 17
+pnpm db:migrate && pnpm db:seed      # schema + lookups/holidays (skip-if-exists)
+pnpm dev                             # http://localhost:3000 · /design for the token reference
 ```
+
+Add shadcn components with `pnpm dlx shadcn@latest add <name>` (the registry is occasionally slow, so retry on timeout).
 
 ## Environment variables
 `.env.example` (committed; created in milestone 1.1). Every variable must also be declared in `src/lib/env.ts`.
@@ -64,7 +66,7 @@ pnpm prisma init
 | `BETTER_AUTH_SECRET` | ✅ | 32+ random bytes |
 | `BETTER_AUTH_URL` | ✅ | e.g. `http://localhost:3000` |
 | `APP_URL` | ✅ | Public base URL, read at **runtime** (absolute links in emails, PWA). There are no `NEXT_PUBLIC_*` variables, so the same image runs in every environment ([ADR 0014](adr/0014-build-once-runtime-config.md)) |
-| `SEED_SUPERADMIN_EMAIL` / `SEED_SUPERADMIN_NAME` / `SEED_SUPERADMIN_PASSWORD` | seed only | First Super Admin |
+| `SEED_SUPERADMIN_EMAIL` / `SEED_SUPERADMIN_NAME` / `SEED_SUPERADMIN_PASSWORD` | seed only | First Super Admin: the `mcsu_automations@questronix.com.ph` service account (no employee data, so no 2FA). Use a long unique password per environment |
 | `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` | Phase 2 | Graph email / SharePoint |
 | `MAIL_SENDER` / `MAIL_REPLY_TO` / `MAIL_OVERRIDE_TO` | Phase 1.3 (password reset) | One shared sender mailbox via Graph (ADR 0009). Reply-to address. Dev redirect of all mail. Without Azure vars, the console driver logs emails instead |
 | `STORAGE_DRIVER` | Phase 2.1 | `local` \| `sharepoint` ([ADR 0007](adr/0007-sharepoint-document-storage.md)) |

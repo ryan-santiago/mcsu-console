@@ -12,7 +12,9 @@
 | Master artwork | `public/brand/master.png` | Auth page hero only |
 | QNX logo | `public/brand/qnx-logo.png` | Footer / about |
 
-The `<Logo variant="auto" />` component picks colour or white from the resolved theme. **TODO (Phase 1):** ask design or marketing for SVG versions. PNGs blur at large sizes and can't be recoloured.
+The `<Logo />` component picks colour or white from the resolved theme.
+
+**Auth "brand stage"** (login, register, password screens): the right panel is built in CSS (`.hero-stage` + `--hero-*` tokens). It's always dark navy with the master artwork's blue/orange glow, a faint grid, the white lockup, the three business lines and a "secure by design" card. `master.png` is never cropped with `object-cover`, because it's a wide logo banner. On phones the panel becomes a short brand band, and the form sits on an overlapping sheet. **TODO (Phase 1):** ask design or marketing for SVG versions. PNGs blur at large sizes and can't be recoloured.
 
 | Brand colour | Hex | OKLCH | Rule |
 |---|---|---|---|

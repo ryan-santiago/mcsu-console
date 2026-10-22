@@ -1,0 +1,16 @@
+# Git hooks (docs/07-conventions.md). Installed by lefthook's postinstall; re-run with `pnpm exec lefthook install`.
+pre-commit:
+  parallel: true
+  commands:
+    format:
+      glob: "*.{ts,tsx,js,mjs,json,css,md,yml,yaml}"
+      run: pnpm exec prettier --write {staged_files}
+      stage_fixed: true
+    lint:
+      glob: "*.{ts,tsx,js,mjs}"
+      run: pnpm exec eslint --fix {staged_files}
+      stage_fixed: true
+commit-msg:
+  commands:
+    commitlint:
+      run: pnpm exec commitlint --edit {1}

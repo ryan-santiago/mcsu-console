@@ -1,6 +1,6 @@
 # 04 · Data model
 
-The full draft schema is [reference/schema.draft.prisma](reference/schema.draft.prisma). In Phase 1 it gets copied to `prisma/schema.prisma`. This page explains the shape and the rules behind it.
+The schema lives in [`prisma/schema.prisma`](../prisma/schema.prisma) (the source of truth since milestone 1.1; the old draft in `docs/reference/` was removed). Migrations are in `prisma/migrations/`, including the raw-SQL partial unique indexes. This page explains the shape and the rules behind it.
 
 ## Entity map
 

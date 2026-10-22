@@ -43,7 +43,7 @@ Full setup is in [docs/02-tech-stack-and-setup.md](docs/02-tech-stack-and-setup.
 | 01 | [Architecture](docs/01-architecture.md) | Folder layout, request flow, layers |
 | 02 | [Tech stack & setup](docs/02-tech-stack-and-setup.md) | Versions, scripts, environments, env vars |
 | 03 | [RBAC](docs/03-rbac.md) | Groups, rank, permission catalog, scopes, policy rules |
-| 04 | [Data model](docs/04-data-model.md) | Entities, ERD, draft Prisma schema ([schema.draft.prisma](docs/reference/schema.draft.prisma)) |
+| 04 | [Data model](docs/04-data-model.md) | Entities, ERD, rules ([prisma/schema.prisma](prisma/schema.prisma)) |
 | 05 | [Design system](docs/05-design-system.md) | Brand, tokens, palettes, light/dark, layout, dashboards |
 | 06 | [Roadmap](docs/06-roadmap.md) | Phases, milestones, definition of done |
 | 07 | [Conventions](docs/07-conventions.md) | Code, server actions, validation, audit, testing, git |

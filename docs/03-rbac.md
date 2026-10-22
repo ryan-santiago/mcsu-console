@@ -172,7 +172,7 @@ They're implemented in `src/lib/authz/policy.ts`, the server is the only enforce
 | R10 | **Effects are immediate.** Suspending a user or changing their group revokes all their sessions. Authz is loaded from the DB on every request. |
 | R11 | **Approval queue visibility:** any holder of `user.approve` sees all pending users. Approving assigns a group that satisfies R4 (the default is `Employee`). |
 | R14 | **Audience match:** every group has `audience = STAFF \| CLIENT`. A user can only be placed in a group whose audience equals `User.type`. Staff can never land in `Client Portal`, and client users can never land in a staff group. |
-| R15 | **2FA for high authority:** a user whose group rank is ≤ 10 must have TOTP enabled. Until they do, every request except 2FA setup and sign-out is redirected to `/settings/security/2fa-setup` (Q7). |
+| R15 | **2FA for high authority, people only:** 2FA exists only for users **linked to an Employee record**. Accounts without employee data (e.g. the `mcsu_automations` service account) can't enable it and are never asked. A user linked to an employee whose group rank is ≤ 10 must have TOTP enabled. Until they do, every request except 2FA setup and sign-out is redirected to `/settings/security/2fa-setup` (Q7). |
 
 ### Allow/deny test matrix (excerpt, encoded as Vitest table tests)
 

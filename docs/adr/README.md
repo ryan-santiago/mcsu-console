@@ -18,3 +18,4 @@ Short records of significant decisions. Format: Context → Decision → Consequ
 | [0012](0012-dns-at-registrar-alb-https.md) | DNS at the current provider, HTTPS on the ALB (no CloudFront, no Route 53) | Accepted |
 | [0013](0013-one-lot-resource-roles.md) | One-Lot membership roles as the single resource-level authorization path | Accepted |
 | [0014](0014-build-once-runtime-config.md) | Build the image once and promote it; public config at runtime | Accepted |
+| [0015](0015-cache-components.md) | Keep Next.js Cache Components on; authorization stays per request | Accepted |

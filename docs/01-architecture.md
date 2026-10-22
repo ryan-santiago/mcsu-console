@@ -36,13 +36,14 @@ flowchart LR
 ```
 mcsu-console/
 ├─ prisma/
-│  ├─ schema.prisma            # see docs/reference/schema.draft.prisma
+│  ├─ schema.prisma            # source of truth (docs/04-data-model.md)
 │  ├─ migrations/
 │  └─ seed.ts                  # catalog sync → groups → lookups → super admin
 ├─ public/brand/               # logo.png, logo-white.png, mark.png, mark-white.png
 ├─ src/
 │  ├─ app/
-│  │  ├─ (auth)/login | register | forgot-password | pending
+│  │  ├─ (auth)/login | register | forgot-password | reset-password | two-factor | pending
+│  │  ├─ (gate)/settings/security/2fa-setup   # before the shell: required 2FA enrollment (R15)
 │  │  ├─ (app)/
 │  │  │  ├─ dashboard/
 │  │  │  ├─ employees/ [id]/ new/
@@ -70,9 +71,9 @@ mcsu-console/
 
 ## Request lifecycle (read)
 1. `proxy.ts` checks that the session cookie exists. If it doesn't, it redirects to `/login?next=…`.
-2. `(app)/layout.tsx` calls `requireUser()`. That loads the session, user, group, grants and led-team ids **from the database on every request**, memoized with React `cache()`. Pending users (who do get a session, so the app knows who they are) are redirected to `/pending`. Suspended users can't hold a session at all (sessions are revoked on suspend and refused at sign-in). Users in a rank ≤ 10 group without 2FA are redirected to 2FA setup (R15).
-3. The sidebar is built from `navigation.ts`, filtered by `can()`.
-4. The page calls `requirePermission("employee.view")`, which renders the `forbidden()` page if it fails.
+2. `(app)/layout.tsx` renders the **static shell** (sidebar and top-bar frames, skeletons) with no session read, as Cache Components requires ([ADR 0015](adr/0015-cache-components.md)). Inside a `<Suspense>` boundary, a user-aware component calls `requireUser()`. That loads the session, user, group, grants and led-team ids **from the database on every request**, memoized with React `cache()`. Pending users (who do get a session, so the app knows who they are) are redirected to `/pending`. Suspended users can't hold a session at all (sessions are revoked on suspend and refused at sign-in). Users in a rank ≤ 10 group without 2FA are redirected to 2FA setup (R15).
+3. The sidebar items are built from `navigation.ts`, filtered by `can()`, inside that boundary.
+4. The page body (also behind `<Suspense>`, with a `loading.tsx` skeleton) calls `requirePermission("employee.view")`, which renders the `forbidden()` page if it fails.
 5. The query runs `authedQuery("employee.view", …)`, which applies `scopeWhere(user, "employee.view")` to the Prisma `where`.
 
 ## Request lifecycle (write)
@@ -86,8 +87,9 @@ mcsu-console/
 
 ## Caching
 - Authz data is **never cached across requests** (fixes the mcsu-app 5-minute cookie-cache bug). Better Auth `session.cookieCache` stays **disabled** for user/group data.
-- Lookups (maintenance tables) may use `"use cache"` with a tag such as `lookup:client`, and get `updateTag` on mutation.
-- Dashboards may cache for 60s with tags. Scoped dashboards must include the user's scope key in the cache key.
+- Cache Components is on ([ADR 0015](adr/0015-cache-components.md)). `"use cache"` (any variant, including `private`) **never** wraps anything that reads the session, grants, scope or scoped data.
+- Only data that's identical for every user may use `"use cache"`: lookups (maintenance tables) with a tag such as `lookup:client`, invalidated with `updateTag` on mutation.
+- Dashboards and every other scoped read run per request. At department scale (< 500 users) that's cheap, and it can't leak data between scopes.
 
 ## Files and documents
 Phase 2 adds documents (frozen MAR PDFs in 2.1, deployment contracts in 2.2, One-Lot documents in 2.4) behind a `DocumentStorage` interface. There are two implementations: `local` (dev/test) and `sharepoint` (staging/prod, via Microsoft Graph). The SharePoint driver ships with milestone **2.1**, its first consumer. See [ADR 0007](adr/0007-sharepoint-document-storage.md).

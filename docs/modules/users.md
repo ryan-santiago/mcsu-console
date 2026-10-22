@@ -38,7 +38,7 @@ Rank rules R2–R4, R8–R11, R14 (audience match) and R15 (2FA) from [03-rbac.m
 ## Security
 - **Allowed domains:** self-registration is rejected unless the email domain is in `AppSetting auth.allowedEmailDomains` (default `["questronix.com.ph"]`). Client users never self-register. They're invited ([ADR 0009](../adr/0009-staff-and-client-accounts.md)).
 - The User Management list gets a **Type** filter (Staff · Client) in Phase 3.
-- **2FA (R15, built in milestone 1.3):** TOTP is mandatory for rank ≤ 10 (Super Admin, Administrator). A user in those groups without 2FA is forced to `/settings/security/2fa-setup` before anything else. Backup codes are issued at setup. Assigning someone to a rank ≤ 10 group requires them to enrol on their next login.
+- **2FA (R15, built in milestone 1.3):** only for users linked to an employee record. For them, TOTP is mandatory at rank ≤ 10 (Super Admin, Administrator). Service accounts without employee data (e.g. `mcsu_automations@questronix.com.ph`) never use 2FA, so protect them with a long, unique password. A user in those groups without 2FA is forced to `/settings/security/2fa-setup` before anything else. Backup codes are issued at setup. Assigning someone to a rank ≤ 10 group requires them to enrol on their next login.
 - Login, registration and password reset are rate-limited.
 
 ## Acceptance criteria
