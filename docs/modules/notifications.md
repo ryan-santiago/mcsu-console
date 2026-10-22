@@ -43,7 +43,7 @@ The catalog lives in code at `src/lib/notifications/catalog.ts`, the same way pe
 | Web Push | Phase 2.6, opt-in | [09 §5.4](../09-mobile-and-pwa.md#54-push-notifications-phase-26) |
 
 ## Data
-`Notification` (one row per recipient), see [schema](../reference/schema.draft.prisma).
+`Notification` (one row per recipient), see [schema](../../prisma/schema.prisma).
 - `dedupeKey` (unique) makes cron reminders fire once, e.g. `renewal:<deploymentId>:45:<recipient>`.
 - Non-user recipients (Sales Rep, Solutions Manager) get a row with `recipientEmail` and no `recipientId`, as an email log.
 

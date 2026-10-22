@@ -1,5 +1,5 @@
-// MCSU Console: DRAFT Prisma schema (Prisma 7).
-// This is the source the real prisma/schema.prisma starts from in Phase 1.
+// MCSU Console Prisma schema (Prisma 7). Source of truth for the data model;
+// keep docs/04-data-model.md in sync with structural changes.
 // Connection URLs live in prisma.config.ts (Prisma 7), not here.
 // Conventions: String ids (uuid v7 unless Better Auth generates them), tables mapped to snake_case,
 // soft delete via deletedAt on business records, money = Decimal(12,2), date-only = @db.Date.
@@ -114,13 +114,17 @@ model Verification {
 
 /// Better Auth twoFactor plugin (TOTP secret + hashed backup codes). Regenerate with `npx @better-auth/cli generate` and diff.
 model TwoFactor {
-  id          String @id
-  secret      String
-  backupCodes String
-  userId      String
-  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                      String    @id
+  secret                  String
+  backupCodes             String
+  userId                  String
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verified                Boolean   @default(true)
+  failedVerificationCount Int       @default(0)
+  lockedUntil             DateTime? @db.Timestamptz(3)
 
   @@index([userId])
+  @@index([secret])
   @@map("two_factor")
 }
 

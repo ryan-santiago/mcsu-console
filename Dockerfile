@@ -3,7 +3,7 @@
 # Targets:
 #   dev      → hot-reload dev server (used by `docker compose --profile dev`)
 #   migrate  → one-off: prisma migrate deploy + idempotent seed
-#   runner   → slim production image (node server.js), non-root, ~200 MB
+#   runner   → slim production image (node server.js), non-root, ~300 MB
 # See docs/10-docker.md.
 
 ARG NODE_VERSION=22
@@ -13,13 +13,15 @@ FROM node:${NODE_VERSION}-alpine AS base
 RUN apk add --no-cache libc6-compat openssl
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \
+    COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+    PRISMA_HIDE_UPDATE_MESSAGE=1 \
     NEXT_TELEMETRY_DISABLED=1
 RUN corepack enable
 WORKDIR /app
 
 # ───────────── deps (cached on lockfile) ─────────────
 FROM base AS deps
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --frozen-lockfile --ignore-scripts
 
@@ -49,7 +51,8 @@ CMD ["sh", "-c", "pnpm db:deploy && pnpm db:seed"]
 FROM node:${NODE_VERSION}-alpine AS runner
 RUN apk add --no-cache libc6-compat openssl \
  && addgroup -S -g 1001 nodejs \
- && adduser -S -u 1001 -G nodejs nextjs
+ && adduser -S -u 1001 -G nodejs nextjs \
+ && install -d -m 755 /app/certs
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3000 \
@@ -58,8 +61,9 @@ ENV NODE_ENV=production \
 COPY --from=build --chown=nextjs:nodejs /app/public ./public
 COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
-# AWS RDS CA bundle for sslmode=verify-full (docs/11-aws-deployment.md §6)
-ADD --chown=nextjs:nodejs --chmod=644 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem ./certs/rds-global-bundle.pem
+# AWS RDS CA bundle for sslmode=verify-full (docs/11-aws-deployment.md §6). Read-only and root-owned;
+# /app/certs is created 755 above because ADD --chmod would otherwise apply 644 to the directory too.
+ADD --chmod=644 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /app/certs/rds-global-bundle.pem
 USER nextjs
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

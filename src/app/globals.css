@@ -1,0 +1,316 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/*
+ * MCSU Console design tokens (docs/05-design-system.md).
+ * Two independent axes on <html>: mode via class="dark" (next-themes) and palette via data-palette.
+ * Selectors are written so palette and mode never override each other:
+ *   :root                                  → QSERV light (default)
+ *   :root.dark                             → QSERV dark
+ *   :root[data-palette="x"]:not(.dark)     → palette x, light
+ *   :root.dark[data-palette="x"]           → palette x, dark
+ * Components use tokens only (bg-card, text-muted-foreground, bg-primary, text-signal…), never raw colours.
+ * Contrast pairs are checked by tests/unit/design-tokens.test.ts.
+ */
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: var(--font-jakarta);
+  --font-heading: var(--font-jakarta);
+  --font-mono: var(--font-jetbrains);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Brand: QSERV blue (logo, active nav). Signal: the orange accent (indicators only, never body text). */
+  --color-brand: var(--brand);
+  --color-signal: var(--accent-signal);
+  --color-signal-foreground: var(--accent-signal-foreground);
+
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-success-soft: var(--success-soft);
+  --color-warning-soft: var(--warning-soft);
+  --color-info-soft: var(--info-soft);
+  --color-destructive-soft: var(--destructive-soft);
+
+  /* Auth "brand stage": always dark, like the master artwork (docs/05 §1). */
+  --color-hero: var(--hero);
+  --color-hero-foreground: var(--hero-foreground);
+  --color-hero-muted: var(--hero-muted);
+  --color-hero-border: var(--hero-border);
+  --color-hero-card: var(--hero-card);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* ───────── QSERV Blue (default) · light ───────── */
+:root {
+  --radius: 0.875rem;
+
+  --background: oklch(0.9765 0.0054 274.97);
+  --foreground: oklch(0.2149 0.0453 276.28);
+  --card: oklch(1 0 0);
+  --card-foreground: var(--foreground);
+  --popover: oklch(1 0 0);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.3701 0.2458 264.17);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.955 0.012 275);
+  --secondary-foreground: var(--foreground);
+  --muted: oklch(0.955 0.012 275);
+  --muted-foreground: oklch(0.5 0.03 275);
+  --accent: oklch(0.94 0.02 275);
+  --accent-foreground: var(--foreground);
+  --destructive: oklch(0.52 0.21 27);
+  --border: oklch(0.9266 0.015 277.84);
+  --input: oklch(0.9266 0.015 277.84);
+  --ring: var(--primary);
+
+  --brand: oklch(0.3701 0.2458 264.17);
+  --accent-signal: oklch(0.668 0.2211 37.49);
+  --accent-signal-foreground: oklch(0.1418 0.0534 274.86);
+
+  --success: oklch(0.5 0.13 155);
+  --warning: oklch(0.52 0.12 70);
+  --info: oklch(0.5 0.15 245);
+
+  --chart-1: var(--primary);
+  --chart-2: var(--accent-signal);
+  --chart-3: oklch(0.5992 0.2181 272.93);
+  --chart-4: oklch(0.7254 0.1797 44.3);
+  --chart-5: oklch(0.7179 0.1481 277.32);
+
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+
+  /* Brand stage (auth pages). Dark in every mode; glows follow the palette's primary + signal. */
+  --hero: oklch(0.13 0.05 275);
+  --hero-foreground: oklch(0.98 0.008 275);
+  --hero-muted: oklch(0.8 0.035 275);
+  --hero-border: oklch(1 0 0 / 10%);
+  --hero-card: oklch(1 0 0 / 6%);
+  --hero-glow-1: oklch(0.52 0.27 266);
+  --hero-glow-2: oklch(0.668 0.2211 37.49);
+
+  /* Soft fills for pills/badges (10–15% alpha), shared by every palette. */
+  --success-soft: color-mix(in oklch, var(--success) 14%, transparent);
+  --warning-soft: color-mix(in oklch, var(--warning) 14%, transparent);
+  --info-soft: color-mix(in oklch, var(--info) 14%, transparent);
+  --destructive-soft: color-mix(in oklch, var(--destructive) 12%, transparent);
+}
+
+/* ───────── QSERV Blue · dark ───────── */
+:root.dark {
+  --background: oklch(0.1418 0.0534 274.86);
+  --foreground: oklch(0.96 0.01 275);
+  --card: oklch(0.1865 0.0738 273.34);
+  --popover: oklch(0.1865 0.0738 273.34);
+  --primary: oklch(0.565 0.2392 271.36);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.24 0.06 274);
+  --muted: oklch(0.24 0.06 274);
+  --muted-foreground: oklch(0.74 0.03 275);
+  --accent: oklch(0.26 0.07 274);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 12%);
+
+  --brand: oklch(0.565 0.2392 271.36);
+
+  --success: oklch(0.76 0.15 155);
+  --warning: oklch(0.8 0.14 80);
+  --info: oklch(0.76 0.12 240);
+
+  --sidebar: oklch(0.1628 0.0358 276.6);
+}
+
+/* ───────── Ember · warm: orange primary (dark text on it), blue accent ───────── */
+:root[data-palette="ember"]:not(.dark) {
+  --primary: oklch(0.668 0.2211 37.49);
+  --primary-foreground: oklch(0.1418 0.0534 274.86);
+  --ring: oklch(0.668 0.2211 37.49);
+  --accent-signal: oklch(0.3701 0.2458 264.17);
+  --accent-signal-foreground: oklch(1 0 0);
+  --background: oklch(0.982 0.006 60);
+  --secondary: oklch(0.96 0.012 55);
+  --muted: oklch(0.96 0.012 55);
+  --accent: oklch(0.945 0.02 55);
+  --border: oklch(0.925 0.015 55);
+  --input: oklch(0.925 0.015 55);
+}
+:root.dark[data-palette="ember"] {
+  --primary: oklch(0.7254 0.1797 44.3);
+  --primary-foreground: oklch(0.1418 0.0534 274.86);
+  --ring: oklch(0.7254 0.1797 44.3);
+  --accent-signal: oklch(0.565 0.2392 271.36);
+  --accent-signal-foreground: oklch(1 0 0);
+}
+
+/* ───────── Midnight · Ops/NOC: deeper navy, electric blue, cyan accent, higher contrast ───────── */
+:root[data-palette="midnight"]:not(.dark) {
+  --background: oklch(0.97 0.008 265);
+  --foreground: oklch(0.16 0.05 274);
+  --primary: oklch(0.48 0.26 266);
+  --ring: oklch(0.48 0.26 266);
+  --muted-foreground: oklch(0.45 0.04 270);
+  --accent-signal: oklch(0.55 0.11 215);
+  --accent-signal-foreground: oklch(1 0 0);
+}
+:root.dark[data-palette="midnight"] {
+  --background: oklch(0.115 0.035 275);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.155 0.05 274);
+  --popover: oklch(0.155 0.05 274);
+  --sidebar: oklch(0.13 0.04 275);
+  --primary: oklch(0.62 0.22 268);
+  --primary-foreground: oklch(0.1418 0.0534 274.86);
+  --ring: oklch(0.62 0.22 268);
+  --muted-foreground: oklch(0.78 0.03 270);
+  --accent-signal: oklch(0.8 0.13 210);
+  --accent-signal-foreground: oklch(0.1418 0.0534 274.86);
+  --border: oklch(1 0 0 / 11%);
+}
+
+/* ───────── Graphite · neutral greys (chroma ≈ 0), QSERV blue primary, orange accent ───────── */
+:root[data-palette="graphite"]:not(.dark) {
+  --background: oklch(0.975 0 0);
+  --foreground: oklch(0.2 0 0);
+  --secondary: oklch(0.955 0 0);
+  --muted: oklch(0.955 0 0);
+  --muted-foreground: oklch(0.48 0 0);
+  --accent: oklch(0.94 0 0);
+  --border: oklch(0.92 0 0);
+  --input: oklch(0.92 0 0);
+}
+:root.dark[data-palette="graphite"] {
+  --background: oklch(0.18 0.004 270);
+  --foreground: oklch(0.96 0 0);
+  --card: oklch(0.215 0.004 270);
+  --popover: oklch(0.215 0.004 270);
+  --sidebar: oklch(0.2 0.004 270);
+  --secondary: oklch(0.26 0.004 270);
+  --muted: oklch(0.26 0.004 270);
+  --muted-foreground: oklch(0.74 0 0);
+  --accent: oklch(0.28 0.004 270);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv11", "ss01";
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  /* Touch devices: every control is at least 44px tall (docs/09-mobile-and-pwa.md §3). */
+  @media (pointer: coarse) {
+    [data-slot="button"],
+    [data-slot="input"],
+    [data-slot="select-trigger"],
+    select {
+      min-height: 44px;
+    }
+    input,
+    select,
+    textarea {
+      font-size: 16px; /* prevents iOS zoom on focus */
+    }
+  }
+  .hero-stage {
+    background-color: var(--hero);
+    background-image:
+      radial-gradient(
+        60% 45% at 18% 38%,
+        color-mix(in oklch, var(--hero-glow-1) 55%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        45% 40% at 85% 62%,
+        color-mix(in oklch, var(--hero-glow-2) 45%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(30% 25% at 55% 50%, oklch(0.75 0.12 270 / 22%), transparent 70%);
+  }
+  /* Fine grid that fades out toward the edges. */
+  .hero-grid {
+    background-image:
+      linear-gradient(to right, var(--hero-border) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--hero-border) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+  }
+  @keyframes hero-float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-8px);
+    }
+  }
+  .hero-float {
+    animation: hero-float 7s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

@@ -55,3 +55,13 @@ src/components/ui/...                shadcn primitives (don't edit by hand excep
 
 ## 7. Docs index
 [README](README.md) · [Vision](docs/00-vision.md) · [Architecture](docs/01-architecture.md) · [Setup](docs/02-tech-stack-and-setup.md) · [RBAC](docs/03-rbac.md) · [Data model](docs/04-data-model.md) · [Design](docs/05-design-system.md) · [Roadmap](docs/06-roadmap.md) · [Conventions](docs/07-conventions.md) · [Open questions](docs/08-open-questions.md) · [Mobile & PWA](docs/09-mobile-and-pwa.md) · [Docker](docs/10-docker.md) · [AWS](docs/11-aws-deployment.md) · [ADRs](docs/adr/) · [Modules](docs/modules/)
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

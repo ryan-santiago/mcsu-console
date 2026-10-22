@@ -44,7 +44,7 @@ Open http://localhost:3000 and sign in with `SEED_SUPERADMIN_EMAIL` / `SEED_SUPE
 | `dev` | Full source + `prisma generate`, runs `pnpm dev` on `0.0.0.0:3000` |
 | `build` | `prisma generate` + `next build` with `output: "standalone"`. **No environment-specific build args:** public config is read at runtime, so the same image is promoted from staging to prod ([ADR 0014](adr/0014-build-once-runtime-config.md)) |
 | `migrate` | Inherits `build` (has the Prisma CLI and tsx), runs `prisma migrate deploy && seed`. A one-off job, **never** run on app start |
-| `runner` | `node:22-alpine`, non-root `nextjs` user, only `.next/standalone` + static + `public`, `HEALTHCHECK` on `/api/health` |
+| `runner` | `node:22-alpine`, non-root `nextjs` user, only `.next/standalone` + static + `public` + the RDS CA bundle, `HEALTHCHECK` on `/api/health` (~300 MB) |
 
 **App requirements** (implemented in Phase 1.1):
 - `next.config.ts`: `output: "standalone"`.
