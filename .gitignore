@@ -1,0 +1,47 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# next.js / build
+.next/
+out/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# prisma generated client
+src/generated/
+
+# testing
+coverage/
+playwright-report/
+test-results/
+blob-report/
+
+# env files (keep only the examples)
+.env
+.env.*
+!.env.example
+!.env.docker.example
+
+# local storage / uploads
+storage/
+
+# terraform
+infra/**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# logs & OS / editor
+*.log
+npm-debug.log*
+pnpm-debug.log*
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json

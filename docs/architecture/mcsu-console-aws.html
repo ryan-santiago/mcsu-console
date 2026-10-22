@@ -1,0 +1,510 @@
+<title>MCSU Console on AWS</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column (~1080px); wide diagrams scroll inside their own wells.
+   Palette: QSERV blue = live request path; signal orange = the one open decision / failure path. */
+:root {
+  --bg: #f6f7fb;
+  --surface: #ffffff;
+  --tint: #eef0fb;
+  --fg: #14163a;
+  --muted: #5a5f80;
+  --line: #d6d9ea;
+  --brand: #000fbe;
+  --signal: #e24700;
+  --ok: #157a3c;
+  --font-ui: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #05061f; --surface: #0b0e35; --tint: #10144a; --fg: #eef0ff; --muted: #a2a7cf;
+    --line: #262b63; --brand: #7d8aff; --signal: #ff7a3d; --ok: #4ad485;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #05061f; --surface: #0b0e35; --tint: #10144a; --fg: #eef0ff; --muted: #a2a7cf;
+  --line: #262b63; --brand: #7d8aff; --signal: #ff7a3d; --ok: #4ad485;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+.page {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding-block: 48px 72px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid;
+  gap: 56px;
+}
+header { display: grid; gap: 14px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--brand); }
+h1 { margin: 0; font-size: clamp(30px, 5vw, 44px); line-height: 1.1; font-weight: 800; letter-spacing: -.02em; text-wrap: balance; }
+h2 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.01em; text-wrap: balance; }
+h3 { margin: 0; font-size: 16px; font-weight: 700; }
+.lede { margin: 0; max-width: 68ch; color: var(--muted); font-size: 17px; }
+section { display: grid; gap: 18px; min-width: 0; }
+section > p { margin: 0; max-width: 72ch; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--font-mono); font-size: .88em; }
+
+.facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 6px 0 0; }
+.facts > div { padding: 16px 18px 16px 0; display: grid; gap: 2px; min-width: 0; }
+.facts > div + div { padding-left: 18px; border-left: 1px solid var(--line); }
+.facts dt { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.facts dd { margin: 0; font-weight: 600; }
+@media (max-width: 760px) {
+  .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .facts > div:nth-child(3) { padding-left: 0; border-left: 0; }
+  .facts > div:nth-child(n+3) { border-top: 1px solid var(--line); }
+}
+
+figure { margin: 0; display: grid; gap: 12px; min-width: 0; }
+.well { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 20px; overflow-x: auto; }
+.well svg { display: block; width: 100%; height: auto; min-width: 900px; }
+.well.compact svg { min-width: 720px; }
+figcaption { font-size: 14px; color: var(--muted); max-width: 82ch; }
+.scroll-hint { display: none; font-size: 12px; color: var(--muted); }
+@media (max-width: 900px) { .scroll-hint { display: block; } }
+
+/* svg styling */
+.box { fill: var(--surface); stroke: var(--line); stroke-width: 1.25; }
+.box.key { stroke: var(--brand); stroke-width: 1.75; }
+.box.ext { fill: var(--tint); }
+.box.open { stroke: var(--signal); stroke-width: 1.75; stroke-dasharray: 6 4; }
+.box.fail { stroke: var(--signal); stroke-dasharray: 5 4; }
+.frame { fill: none; stroke: var(--muted); stroke-width: 1; stroke-dasharray: 6 5; opacity: .7; }
+.frame.vpc { stroke-dasharray: none; opacity: .55; }
+.subnet { fill: var(--tint); stroke: none; }
+.t { fill: var(--fg); font-family: var(--font-ui); font-size: 13.5px; font-weight: 700; }
+.s { fill: var(--muted); font-family: var(--font-ui); font-size: 11.5px; }
+.lbl { fill: var(--muted); font-family: var(--font-mono); font-size: 11px; }
+.lbl.brand { fill: var(--brand); }
+.lbl.signal { fill: var(--signal); }
+.lbl.ok { fill: var(--ok); }
+.frame-t { fill: var(--muted); font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em; }
+.frame-t.strong { fill: var(--fg); font-family: var(--font-ui); font-size: 13px; font-weight: 700; letter-spacing: 0; }
+.halo { paint-order: stroke; stroke: var(--surface); stroke-width: 5px; stroke-linejoin: round; }
+.wire { fill: none; stroke: var(--muted); stroke-width: 1.4; }
+.wire.main { stroke: var(--brand); stroke-width: 2.2; }
+.wire.signal { stroke: var(--signal); stroke-width: 2; }
+.wire.dash { stroke-dasharray: 5 4; }
+.head { fill: var(--muted); }
+.head.main { fill: var(--brand); }
+.head.signal { fill: var(--signal); }
+.num { fill: var(--brand); font-family: var(--font-mono); font-size: 11px; font-weight: 500; }
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 600px; font-size: 14px; }
+th, td { text-align: left; padding: 11px 16px; vertical-align: top; border-bottom: 1px solid var(--line); }
+tr:last-child td { border-bottom: 0; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; background: var(--tint); }
+td:first-child { font-weight: 600; }
+td.nowrap, th.nowrap { white-space: nowrap; }
+.who { font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+.steps { counter-reset: step; list-style: none; margin: 0; padding: 0; display: grid; gap: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); overflow: hidden; }
+.steps li { counter-increment: step; display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 4px 14px; padding: 14px 18px; border-bottom: 1px solid var(--line); align-items: baseline; }
+.steps li:last-child { border-bottom: 0; }
+.steps li::before { content: counter(step, decimal-leading-zero); font-family: var(--font-mono); font-size: 12px; color: var(--brand); }
+.steps strong { font-weight: 700; }
+.steps .detail { grid-column: 2 / 4; color: var(--muted); font-size: 14px; }
+@media (max-width: 640px) {
+  .steps li { grid-template-columns: 34px minmax(0, 1fr); }
+  .steps .who { grid-column: 2; }
+  .steps .detail { grid-column: 2; }
+}
+
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 28px; }
+.cols h3 { margin-bottom: 6px; font-size: 15px; }
+.cols ul, .check { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.cols li::marker { color: var(--brand); }
+.check { list-style: none; padding: 0; }
+.check li { display: grid; grid-template-columns: 22px minmax(0, 1fr); }
+.check li::before { content: "☐"; color: var(--brand); }
+
+.card { border: 1px solid var(--line); border-radius: 18px; background: var(--surface); padding: 22px 24px; display: grid; gap: 12px; }
+.card ol { margin: 0; padding-left: 22px; display: grid; gap: 8px; }
+.card ol li::marker { font-family: var(--font-mono); color: var(--brand); }
+.pill { display: inline-block; font-family: var(--font-mono); font-size: 11px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--signal); color: var(--signal); vertical-align: 3px; }
+pre { margin: 0; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; background: var(--tint); border-radius: 12px; padding: 14px 16px; overflow-x: auto; }
+footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 18px; }
+</style>
+
+<main class="page">
+  <header>
+    <div class="eyebrow">QSERV – MCSU · Infrastructure</div>
+    <h1>MCSU Console on AWS</h1>
+    <p class="lede">Where the console runs, how a request reaches the database, how we deploy it, and the one decision left for go-live. Everything runs in AWS Singapore. Email and documents stay in our Microsoft 365, and the web address stays with our DNS provider.</p>
+    <dl class="facts">
+      <div><dt>Region</dt><dd>ap-southeast-1 · Singapore</dd></div>
+      <div><dt>Accounts</dt><dd>Staging + prod, in QNX AWS Org</dd></div>
+      <div><dt>Database</dt><dd>RDS PostgreSQL 17</dd></div>
+      <div><dt>HTTPS</dt><dd>Free AWS certificate on the load balancer</dd></div>
+    </dl>
+  </header>
+
+  <section aria-labelledby="h-runtime">
+    <h2 id="h-runtime">How a request reaches the data</h2>
+    <p>The browser first asks our DNS provider where the console lives, then connects straight to the load balancer over HTTPS. Each layer accepts traffic only from the layer in front of it, so the app server and database can't be reached from the internet.</p>
+    <figure>
+      <div class="well">
+        <svg viewBox="0 0 1300 560" role="img" aria-label="Users look up the console address at the DNS provider, then connect over HTTPS to the load balancer, which holds a free AWS certificate. The load balancer forwards to the EC2 app server, which talks to the RDS database in a private subnet. The app server also pulls images from ECR, reads secrets from Systems Manager, sends logs to CloudWatch and calls Microsoft 365. EventBridge calls the scheduled-job endpoints through the load balancer.">
+          <defs>
+            <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0 0 L10 5 L0 10 z"/></marker>
+            <marker id="ahm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head main" d="M0 0 L10 5 L0 10 z"/></marker>
+          </defs>
+
+          <!-- frames -->
+          <rect class="frame" x="356" y="20" width="700" height="520" rx="18"/>
+          <text class="frame-t strong" x="374" y="44">AWS · ap-southeast-1 (Singapore)</text>
+          <text class="frame-t" x="1040" y="44" text-anchor="end">dedicated account · QNX AWS Org</text>
+          <rect class="frame vpc" x="366" y="118" width="600" height="172" rx="14"/>
+          <text class="frame-t" x="952" y="136" text-anchor="end">VPC · 2 Availability Zones</text>
+          <rect class="subnet" x="376" y="144" width="372" height="136" rx="10"/>
+          <rect class="subnet" x="760" y="144" width="196" height="136" rx="10"/>
+          <text class="frame-t" x="390" y="162">public subnet</text>
+          <text class="frame-t" x="774" y="162">private subnet · no internet</text>
+
+          <!-- DNS (outside AWS) -->
+          <rect class="box ext" x="176" y="36" width="160" height="60" rx="12"/>
+          <text class="t" x="256" y="61" text-anchor="middle">DNS provider</text>
+          <text class="s" x="256" y="80" text-anchor="middle">e.g. Hostinger · CNAME</text>
+
+          <!-- certificate -->
+          <rect class="box" x="390" y="58" width="148" height="48" rx="10"/>
+          <text class="t" x="464" y="78" text-anchor="middle">Certificate Manager</text>
+          <text class="s" x="464" y="96" text-anchor="middle">free TLS · auto-renews</text>
+          <line class="wire dash" x1="464" y1="106" x2="464" y2="172" marker-end="url(#ah)"/>
+          <text class="lbl halo" x="472" y="140">certificate</text>
+
+          <!-- users + lookup -->
+          <rect class="box" x="16" y="174" width="140" height="64" rx="12"/>
+          <text class="t" x="86" y="201" text-anchor="middle">Staff &amp; clients</text>
+          <text class="s" x="86" y="220" text-anchor="middle">browser · phone app</text>
+          <polyline class="wire" points="86,174 86,66 174,66" marker-end="url(#ah)"/>
+          <text class="lbl halo" x="94" y="124">① look up</text>
+          <text class="lbl halo" x="94" y="139">address</text>
+
+          <!-- request spine -->
+          <rect class="box key" x="390" y="174" width="148" height="64" rx="12"/>
+          <text class="t" x="464" y="201" text-anchor="middle">Load balancer</text>
+          <text class="s" x="464" y="220" text-anchor="middle">HTTPS 443 · ALB</text>
+
+          <rect class="box key" x="576" y="174" width="158" height="64" rx="12"/>
+          <text class="t" x="655" y="201" text-anchor="middle">EC2 app server</text>
+          <text class="s" x="655" y="220" text-anchor="middle">Docker · port 3000</text>
+
+          <rect class="box key" x="772" y="174" width="172" height="64" rx="12"/>
+          <text class="t" x="858" y="201" text-anchor="middle">RDS PostgreSQL 17</text>
+          <text class="s" x="858" y="220" text-anchor="middle">encrypted · daily backups</text>
+
+          <line class="wire main" x1="156" y1="206" x2="388" y2="206" marker-end="url(#ahm)"/>
+          <text class="lbl brand halo" x="272" y="196" text-anchor="middle">② HTTPS</text>
+          <line class="wire main" x1="538" y1="206" x2="574" y2="206" marker-end="url(#ahm)"/>
+          <text class="lbl brand halo" x="557" y="262" text-anchor="middle">:3000</text>
+          <line class="wire main" x1="734" y1="206" x2="770" y2="206" marker-end="url(#ahm)"/>
+          <text class="lbl brand halo" x="753" y="262" text-anchor="middle">5432 TLS</text>
+
+          <!-- dependency bus from EC2 -->
+          <polyline class="wire" points="655,238 655,318"/>
+          <polyline class="wire" points="616,318 1186,318"/>
+          <line class="wire" x1="616" y1="318" x2="616" y2="354" marker-end="url(#ah)"/>
+          <line class="wire" x1="786" y1="318" x2="786" y2="354" marker-end="url(#ah)"/>
+          <line class="wire" x1="956" y1="318" x2="956" y2="354" marker-end="url(#ah)"/>
+          <line class="wire" x1="1186" y1="318" x2="1186" y2="354" marker-end="url(#ah)"/>
+          <text class="lbl halo" x="622" y="342">pulls image</text>
+          <text class="lbl halo" x="792" y="342">reads secrets</text>
+          <text class="lbl halo" x="962" y="342">ships logs</text>
+          <text class="lbl halo" x="1180" y="342" text-anchor="end">Graph API</text>
+
+          <rect class="box" x="546" y="356" width="140" height="64" rx="12"/>
+          <text class="t" x="616" y="383" text-anchor="middle">ECR</text>
+          <text class="s" x="616" y="402" text-anchor="middle">container images</text>
+
+          <rect class="box" x="716" y="356" width="140" height="64" rx="12"/>
+          <text class="t" x="786" y="383" text-anchor="middle">Systems Manager</text>
+          <text class="s" x="786" y="402" text-anchor="middle">secrets · admin access</text>
+
+          <rect class="box" x="886" y="356" width="140" height="64" rx="12"/>
+          <text class="t" x="956" y="383" text-anchor="middle">CloudWatch</text>
+          <text class="s" x="956" y="402" text-anchor="middle">logs · alarms</text>
+
+          <rect class="box ext" x="1096" y="356" width="180" height="64" rx="12"/>
+          <text class="t" x="1186" y="383" text-anchor="middle">Microsoft 365</text>
+          <text class="s" x="1186" y="402" text-anchor="middle">email · SharePoint docs</text>
+
+          <!-- scheduled jobs -->
+          <rect class="box" x="376" y="456" width="140" height="64" rx="12"/>
+          <text class="t" x="446" y="483" text-anchor="middle">EventBridge</text>
+          <text class="s" x="446" y="502" text-anchor="middle">scheduled jobs</text>
+          <line class="wire dash" x1="430" y1="456" x2="430" y2="240" marker-end="url(#ah)"/>
+          <text class="lbl halo" x="440" y="372">/api/cron/*</text>
+          <text class="lbl halo" x="440" y="388">renewal &amp; MAR</text>
+          <text class="lbl halo" x="440" y="404">reminders</text>
+        </svg>
+      </div>
+      <figcaption>Blue is the live request path. Grey arrows are calls the app server makes outward. Dashed lines are the certificate attached to the load balancer, and EventBridge triggering scheduled jobs (contract renewals, Monthly Activity Report reminders). The jobs run outside the server, so they keep working if the server is replaced.</figcaption>
+      <div class="scroll-hint">Scroll the diagram sideways to see all of it.</div>
+    </figure>
+  </section>
+
+  <section aria-labelledby="h-trust">
+    <h2 id="h-trust">Who is allowed to connect to what</h2>
+    <p>Firewall rules (security groups) are chained. Nobody logs in to the server over SSH. Admin access goes through Systems Manager and is logged.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Layer</th><th>Accepts</th><th>Only from</th></tr></thead>
+        <tbody>
+          <tr><td>Load balancer</td><td class="mono">443 (80 redirects to 443)</td><td>The internet</td></tr>
+          <tr><td>EC2 app server</td><td class="mono">3000</td><td>The load balancer's security group</td></tr>
+          <tr><td>RDS database</td><td class="mono">5432 · TLS required</td><td>The app server's security group</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-domain">
+    <h2 id="h-domain">Web address and HTTPS <span class="pill">production domain open · Q18</span></h2>
+    <p>The domain stays with its current DNS provider. Per environment we add two records: one proves to AWS that we own the name (AWS then issues a free certificate that renews itself), and one points the name at the load balancer. Staging uses a domain we control now. Production uses the same method once its domain is chosen.</p>
+    <figure>
+      <div class="well compact">
+        <svg viewBox="0 0 1000 230" role="img" aria-label="Staging now: staging-console on our current domain is a CNAME at the DNS provider pointing to the staging load balancer, which has an AWS certificate. Production at go-live: console on the chosen domain is a CNAME pointing to the production load balancer with its own certificate; the domain is not decided yet.">
+          <defs>
+            <marker id="dh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head main" d="M0 0 L10 5 L0 10 z"/></marker>
+            <marker id="dsh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head signal" d="M0 0 L10 5 L0 10 z"/></marker>
+          </defs>
+          <text class="frame-t strong" x="16" y="28">Staging (now)</text>
+          <rect class="box ext" x="16" y="40" width="300" height="64" rx="12"/>
+          <text class="t" x="166" y="66" text-anchor="middle">staging-console.&lt;our domain&gt;</text>
+          <text class="s" x="166" y="86" text-anchor="middle">CNAME at our DNS provider (e.g. Hostinger)</text>
+          <line class="wire main" x1="316" y1="72" x2="574" y2="72" marker-end="url(#dh)"/>
+          <text class="lbl brand halo" x="445" y="62" text-anchor="middle">points to</text>
+          <rect class="box key" x="576" y="40" width="404" height="64" rx="12"/>
+          <text class="t" x="778" y="66" text-anchor="middle">Staging load balancer</text>
+          <text class="s" x="778" y="86" text-anchor="middle">AWS certificate for staging-console.&lt;our domain&gt;</text>
+
+          <text class="frame-t strong" x="16" y="146">Production (at go-live)</text>
+          <rect class="box open" x="16" y="158" width="300" height="64" rx="12"/>
+          <text class="t" x="166" y="184" text-anchor="middle">console.&lt;chosen domain&gt;</text>
+          <text class="s" x="166" y="204" text-anchor="middle">CNAME at that domain's DNS provider</text>
+          <line class="wire signal" x1="316" y1="190" x2="574" y2="190" marker-end="url(#dsh)"/>
+          <text class="lbl signal halo" x="445" y="180" text-anchor="middle">points to</text>
+          <rect class="box key" x="576" y="158" width="404" height="64" rx="12"/>
+          <text class="t" x="778" y="184" text-anchor="middle">Production load balancer</text>
+          <text class="s" x="778" y="204" text-anchor="middle">AWS certificate for console.&lt;chosen domain&gt;</text>
+        </svg>
+      </div>
+      <figcaption>Use a subdomain (for example <span class="mono">console.</span>), not the bare domain: the load balancer is pointed to by name, and most DNS providers only allow that on subdomains. Keep the validation record in place permanently, because AWS uses it to renew the certificate. Choose the production address as the one to keep: changing it later means people sign in again and reinstall the phone app.</figcaption>
+    </figure>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th class="nowrap">Record at the DNS provider</th><th>Type</th><th>Points to</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td class="mono nowrap">_&lt;token&gt;.staging-console</td><td>CNAME</td><td class="mono">_&lt;token&gt;.acm-validations.aws</td><td>Proves ownership; keeps the certificate renewing</td></tr>
+          <tr><td class="mono nowrap">staging-console</td><td>CNAME</td><td class="mono">&lt;staging-alb&gt;.ap-southeast-1.elb.amazonaws.com</td><td>Sends users to staging</td></tr>
+          <tr><td class="mono nowrap">_&lt;token&gt;.console</td><td>CNAME</td><td class="mono">_&lt;token&gt;.acm-validations.aws</td><td>Production certificate (at go-live)</td></tr>
+          <tr><td class="mono nowrap">console</td><td>CNAME</td><td class="mono">&lt;prod-alb&gt;.ap-southeast-1.elb.amazonaws.com</td><td>Sends users to production (at go-live)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-setup">
+    <h2 id="h-setup">Deployment method: one-time setup</h2>
+    <p>Done once for staging (roadmap milestone 1.1b), then repeated for production at go-live. All infrastructure is defined in Terraform, so both environments are built from the same files.</p>
+    <ol class="steps">
+      <li><strong>Create the AWS account and team access</strong><span class="who">QNX AWS Org admin</span><span class="detail">New member account in the Organization; IAM Identity Center access for the team.</span></li>
+      <li><strong>Prepare Terraform state</strong><span class="who">Dev lead</span><span class="detail">An encrypted, versioned S3 bucket that stores what Terraform has built.</span></li>
+      <li><strong>Build the infrastructure</strong><span class="who">Dev lead</span><span class="detail"><span class="mono">terraform apply</span>: network, firewall rules, load balancer, EC2 server, RDS database, image registry, alarms, scheduled jobs, and the GitHub deploy role.</span></li>
+      <li><strong>Request the certificate</strong><span class="who">Terraform</span><span class="detail">AWS Certificate Manager issues a validation record for the subdomain.</span></li>
+      <li><strong>Add the validation record</strong><span class="who">Whoever manages DNS</span><span class="detail">Add the CNAME at the DNS provider (e.g. Hostinger hPanel → DNS). The certificate shows <em>Issued</em> within minutes to an hour.</span></li>
+      <li><strong>Turn on HTTPS</strong><span class="who">Dev lead</span><span class="detail">Run <span class="mono">terraform apply</span> again: the load balancer's HTTPS listener uses the issued certificate, and HTTP redirects to HTTPS.</span></li>
+      <li><strong>Point the web address at the load balancer</strong><span class="who">Whoever manages DNS</span><span class="detail">CNAME <span class="mono">staging-console</span> → the load balancer's address (a Terraform output).</span></li>
+      <li><strong>Fill in secrets</strong><span class="who">Dev lead</span><span class="detail">Database passwords, sign-in secret, Microsoft 365 app credentials and cron secret go into Parameter Store, never into files in the repo.</span></li>
+      <li><strong>Create the database users</strong><span class="who">Dev lead</span><span class="detail">One user that can change the schema (used only for releases) and one read/write user for the app.</span></li>
+      <li><strong>First deploy</strong><span class="who">Dev lead</span><span class="detail">GitHub → Actions → Deploy → Run workflow. It creates the tables and the first Super Admin account.</span></li>
+      <li><strong>Smoke test</strong><span class="who">Team</span><span class="detail">Sign in, check the health page, install the phone app, send a test email.</span></li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="h-deploy">
+    <h2 id="h-deploy">Deployment method: every release</h2>
+    <p>The same steps run for both environments. <strong>Staging</strong> updates automatically when a change is merged. <strong>Production</strong> updates only from a release tag, after a manual approval, and takes a database snapshot first.</p>
+    <figure>
+      <div class="well compact">
+        <svg viewBox="0 0 1160 250" role="img" aria-label="Deploy pipeline: GitHub Actions tests and builds the image, pushes it to ECR, then Systems Manager runs the deploy script on EC2, which applies database changes with the migrate job and starts the new app. If the health check fails, it rolls back to the previous image.">
+          <defs>
+            <marker id="bh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head main" d="M0 0 L10 5 L0 10 z"/></marker>
+            <marker id="sh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head signal" d="M0 0 L10 5 L0 10 z"/></marker>
+          </defs>
+          <text class="num" x="16" y="34">1</text>
+          <rect class="box key" x="16" y="42" width="190" height="72" rx="12"/>
+          <text class="t" x="111" y="72" text-anchor="middle">GitHub Actions</text>
+          <text class="s" x="111" y="92" text-anchor="middle">test · build arm64 image</text>
+
+          <text class="num" x="256" y="34">2</text>
+          <rect class="box key" x="256" y="42" width="190" height="72" rx="12"/>
+          <text class="t" x="351" y="72" text-anchor="middle">Amazon ECR</text>
+          <text class="s" x="351" y="92" text-anchor="middle">stores image tagged by commit</text>
+
+          <text class="num" x="496" y="34">3</text>
+          <rect class="box key" x="496" y="42" width="190" height="72" rx="12"/>
+          <text class="t" x="591" y="72" text-anchor="middle">Systems Manager</text>
+          <text class="s" x="591" y="92" text-anchor="middle">runs deploy script on EC2</text>
+
+          <text class="num" x="736" y="34">4</text>
+          <rect class="box key" x="736" y="42" width="190" height="72" rx="12"/>
+          <text class="t" x="831" y="72" text-anchor="middle">Migrate job</text>
+          <text class="s" x="831" y="92" text-anchor="middle">applies schema changes on RDS</text>
+
+          <text class="num" x="964" y="34">5</text>
+          <rect class="box key" x="964" y="42" width="180" height="72" rx="12"/>
+          <text class="t" x="1054" y="72" text-anchor="middle">Start new app</text>
+          <text class="s" x="1054" y="92" text-anchor="middle">waits for /api/health</text>
+
+          <line class="wire main" x1="206" y1="78" x2="254" y2="78" marker-end="url(#bh)"/>
+          <text class="lbl brand halo" x="230" y="134" text-anchor="middle">push</text>
+          <line class="wire main" x1="446" y1="78" x2="494" y2="78" marker-end="url(#bh)"/>
+          <text class="lbl brand halo" x="470" y="134" text-anchor="middle">trigger</text>
+          <line class="wire main" x1="686" y1="78" x2="734" y2="78" marker-end="url(#bh)"/>
+          <text class="lbl brand halo" x="710" y="134" text-anchor="middle">pull</text>
+          <line class="wire main" x1="926" y1="78" x2="962" y2="78" marker-end="url(#bh)"/>
+          <text class="lbl brand halo" x="944" y="134" text-anchor="middle">then</text>
+
+          <line class="wire signal" x1="1054" y1="114" x2="1054" y2="170" marker-end="url(#sh)"/>
+          <text class="lbl signal halo" x="1046" y="148" text-anchor="end">health check fails</text>
+          <rect class="box fail" x="934" y="172" width="210" height="60" rx="12"/>
+          <text class="t" x="1039" y="198" text-anchor="middle">Roll back</text>
+          <text class="s" x="1039" y="217" text-anchor="middle">restart the previous image</text>
+
+          <text class="lbl ok" x="16" y="190">✓ Staging: on every merge to main</text>
+          <text class="lbl ok" x="16" y="212">✓ Production: release tag + approval + RDS snapshot first</text>
+        </svg>
+      </div>
+      <figcaption>GitHub signs in to AWS with short-lived credentials (OIDC), so no AWS keys are stored in GitHub. Database changes are written so the previous version still works against the new schema, which keeps rollback safe. A release causes a restart of roughly 5–10 seconds.</figcaption>
+    </figure>
+    <div class="cols">
+      <div>
+        <h3>What the deploy script does on the server</h3>
+<pre>deploy.sh &lt;version&gt;
+  1. load secrets from Parameter Store
+  2. pull the new image from ECR
+  3. run the migrate job (schema changes)
+  4. start the new app
+  5. wait for /api/health
+     ✗ unhealthy → restart previous version</pre>
+      </div>
+      <div>
+        <h3>If something goes wrong</h3>
+        <ul>
+          <li><strong>App broken after release:</strong> rolls back automatically. To pick a version yourself, re-run the Deploy workflow with an older version.</li>
+          <li><strong>Data problem:</strong> restore the database to a point in time, check it, then point the app at it.</li>
+          <li><strong>Server failure:</strong> AWS recovers the server automatically, and a new one can be rebuilt from the template in minutes.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-env">
+    <h2 id="h-env">Staging and production</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>Staging</th><th>Production</th></tr></thead>
+        <tbody>
+          <tr><td>AWS account</td><td class="mono">qnx-mcsu-console-staging</td><td class="mono">qnx-mcsu-console-prod</td></tr>
+          <tr><td>Address</td><td class="mono">staging-console.&lt;our domain&gt;</td><td class="mono">console.&lt;chosen domain&gt;</td></tr>
+          <tr><td>App server</td><td class="mono">t4g.small</td><td class="mono">t4g.medium <span class="muted">(start; resize after 2 weeks)</span></td></tr>
+          <tr><td>Database</td><td class="mono">db.t4g.micro</td><td class="mono">db.t4g.small · storage autoscaling</td></tr>
+          <tr><td>Backups</td><td>7 days</td><td>14–35 days, point-in-time restore, snapshot before each release</td></tr>
+          <tr><td>Updates</td><td>Automatic on merge</td><td>Release tag + manual approval</td></tr>
+          <tr><td>Data</td><td>Seed and demo data</td><td>Real data only</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted">Sizes are starting points for a department-scale app (under 500 users).</p>
+  </section>
+
+  <section aria-labelledby="h-golive">
+    <h2 id="h-golive">Production go-live checklist</h2>
+    <div class="card">
+      <ul class="check">
+        <li>Production domain chosen and access to its DNS confirmed</li>
+        <li>Production account built (setup steps 1–9), certificate issued, <span class="mono">console</span> record live</li>
+        <li>App address settings point at the production URL</li>
+        <li>Restore-from-backup drill done once on the production database</li>
+        <li>Alarm emails confirmed, budget alert set</li>
+        <li>First release deployed with approval, smoke test passed</li>
+        <li>Staging users told that production is a separate address (sign in again, reinstall the phone app)</li>
+      </ul>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-ops">
+    <h2 id="h-ops">Keeping it running</h2>
+    <div class="cols">
+      <div>
+        <h3>Backups</h3>
+        <ul>
+          <li>Automatic daily RDS backups with point-in-time restore</li>
+          <li>Snapshot before every production release</li>
+          <li>Restore to a fresh database tested once a quarter</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Monitoring</h3>
+        <ul>
+          <li>App logs in CloudWatch, errors in Sentry</li>
+          <li>Email alarms for site errors, unhealthy server, high CPU, low database storage, certificate not renewing</li>
+          <li>Hardware failure triggers automatic server recovery</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Security &amp; upkeep</h3>
+        <ul>
+          <li>Database private, encrypted, TLS required</li>
+          <li>No SSH, no stored AWS keys, secrets in Parameter Store</li>
+          <li>DNS provider account protected with 2FA</li>
+          <li>Weekly OS patching window, monthly budget alert</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-ask">
+    <h2 id="h-ask">What we need from others</h2>
+    <div class="card">
+      <h3>QNX AWS Org admin</h3>
+      <ol>
+        <li>Two member accounts in the right OU: <span class="mono">qnx-mcsu-console-staging</span> and <span class="mono">qnx-mcsu-console-prod</span></li>
+        <li>IAM Identity Center access for the team: admin for 1–2 leads, developer or read-only for others</li>
+        <li><span class="mono">ap-southeast-1</span> allowed in both accounts</li>
+        <li>A budget alert on each account</li>
+      </ol>
+      <h3>DNS owner (e.g. Hostinger account holder)</h3>
+      <ol>
+        <li>Two CNAME records for staging now, and two for production at go-live (listed above)</li>
+      </ol>
+      <h3>Microsoft 365 admin</h3>
+      <ol>
+        <li>One shared sender mailbox, and an app registration limited to that mailbox and the one SharePoint site</li>
+      </ol>
+    </div>
+  </section>
+
+  <footer>MCSU Console · infrastructure overview · updated 22 Oct 2026 · details in <span class="mono">docs/11-aws-deployment.md</span>, ADR 0011 and ADR 0012</footer>
+</main>

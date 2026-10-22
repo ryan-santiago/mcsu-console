@@ -1,0 +1,809 @@
+// MCSU Console: DRAFT Prisma schema (Prisma 7).
+// This is the source the real prisma/schema.prisma starts from in Phase 1.
+// Connection URLs live in prisma.config.ts (Prisma 7), not here.
+// Conventions: String ids (uuid v7 unless Better Auth generates them), tables mapped to snake_case,
+// soft delete via deletedAt on business records, money = Decimal(12,2), date-only = @db.Date.
+
+generator client {
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["relationJoins"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────────────────────── Auth (Better Auth core tables) ─────────────────────────────
+
+enum UserType {
+  STAFF
+  CLIENT // invited client contact (Phase 3); no employee link, client-scoped
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+}
+
+model User {
+  id            String     @id
+  name          String
+  email         String     @unique
+  emailVerified Boolean    @default(false)
+  image         String?
+  type          UserType   @default(STAFF)
+  status        UserStatus @default(PENDING)
+  clientId      String? // set only for CLIENT users
+  client        Client?    @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  groupId       String? // null while PENDING
+  group         Group?     @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  employeeId    String?    @unique // auto-linked by email == Employee.workEmail
+  employee      Employee?  @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  approvedAt    DateTime?
+  approvedById  String?
+  lastLoginAt   DateTime?
+  preferences   Json       @default("{}") // { theme: "system"|"light"|"dark", palette: "qserv"|"ember"|"midnight"|"graphite", density, sidebarCollapsed }
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  sessions      Session[]
+  accounts      Account[]
+  auditLogs     AuditLog[]
+  memberships   OneLotMember[]
+  assignedItems WorkItem[]        @relation("WorkItemAssignee")
+  reportedItems WorkItem[]        @relation("WorkItemReporter")
+  comments      WorkItemComment[]
+
+  @@index([status])
+  @@index([groupId])
+  @@index([clientId])
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+// ───────────────────────────── Access control ─────────────────────────────
+
+enum PermissionScope {
+  OWN
+  TEAM
+  ALL
+}
+
+model Group {
+  id          String            @id @default(uuid(7))
+  name        String            @unique
+  rank        Int // lower = more authority; 0 = Super Admin
+  description String?
+  isSystem    Boolean           @default(false)
+  isDefault   Boolean           @default(false) // group assigned on approval (exactly one)
+  grants      GroupPermission[]
+  users       User[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([rank])
+  @@map("group")
+}
+
+/// Mirror of src/lib/authz/catalog.ts. Synced (upsert + delete stale) by the seed on every deploy.
+model Permission {
+  key         String            @id // e.g. "employee.view"
+  module      String
+  label       String
+  description String?
+  scopable    Boolean           @default(false)
+  sortOrder   Int               @default(0)
+  grants      GroupPermission[]
+
+  @@map("permission")
+}
+
+model GroupPermission {
+  groupId       String
+  group         Group           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  permissionKey String
+  permission    Permission      @relation(fields: [permissionKey], references: [key], onDelete: Cascade)
+  scope         PermissionScope @default(ALL)
+
+  @@id([groupId, permissionKey])
+  @@map("group_permission")
+}
+
+// ───────────────────────────── Maintenance (lookups) ─────────────────────────────
+
+model Client {
+  id          String               @id @default(uuid(7))
+  code        String?              @unique // Client Code: reference on tickets/portal, NOT a login credential
+  name        String               @unique
+  isActive    Boolean              @default(true)
+  projects    Project[]
+  deployments EmployeeDeployment[]
+  users       User[] // CLIENT-type portal users (Phase 3)
+  emailDomains String[]            @default([]) // for email-to-ticket sender matching
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@map("client")
+}
+
+model Position {
+  id          String               @id @default(uuid(7))
+  name        String               @unique
+  isActive    Boolean              @default(true)
+  employments EmployeeEmployment[]
+  jobProfiles JobProfile[]
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@map("position")
+}
+
+model Level {
+  id          String               @id @default(uuid(7))
+  name        String               @unique
+  sortOrder   Int                  @default(0)
+  isActive    Boolean              @default(true)
+  employments EmployeeEmployment[]
+  jobProfiles JobProfile[]
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@map("level")
+}
+
+model Gender {
+  id        String     @id @default(uuid(7))
+  name      String     @unique
+  isActive  Boolean    @default(true)
+  employees Employee[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@map("gender")
+}
+
+model EmploymentType {
+  id          String               @id @default(uuid(7))
+  name        String               @unique // Regular, Probationary, Project-Hired, …
+  isActive    Boolean              @default(true)
+  employments EmployeeEmployment[]
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@map("employment_type")
+}
+
+model EngagementType {
+  id        String    @id @default(uuid(7))
+  name      String    @unique // Staff Augmentation, One-Lot, Managed Services, Implementation, Maintenance
+  isActive  Boolean   @default(true)
+  projects  Project[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@map("engagement_type")
+}
+
+model SalesRepresentative {
+  id        String    @id @default(uuid(7))
+  name      String    @unique
+  email     String?
+  isActive  Boolean   @default(true)
+  projects  Project[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@map("sales_representative")
+}
+
+model SolutionsManager {
+  id        String    @id @default(uuid(7))
+  name      String    @unique
+  email     String?
+  isActive  Boolean   @default(true)
+  projects  Project[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@map("solutions_manager")
+}
+
+model Team {
+  id          String        @id @default(uuid(7))
+  name        String        @unique
+  description String?
+  isActive    Boolean       @default(true)
+  leads       TeamLead[]
+  members     Employee[]
+  projects    ProjectTeam[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@map("team")
+}
+
+/// One or more team leads per team. A lead need not be a member of the team (e.g. a unit manager leading 2 teams).
+model TeamLead {
+  teamId     String
+  team       Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@id([teamId, employeeId])
+  @@index([employeeId])
+  @@map("team_lead")
+}
+
+model JobProfile {
+  id                String   @id @default(uuid(7))
+  positionId        String
+  position          Position @relation(fields: [positionId], references: [id], onDelete: Restrict)
+  levelId           String
+  level             Level    @relation(fields: [levelId], references: [id], onDelete: Restrict)
+  jobDescription    String?
+  jobQualification  String?
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([positionId, levelId])
+  @@map("job_profile")
+}
+
+// ───────────────────────────── Workforce: Employee ─────────────────────────────
+
+model Employee {
+  id                String    @id @default(uuid(7))
+  code              String?   @unique // company employee no.
+  firstName         String
+  middleName        String?
+  lastName          String
+  suffix            String?
+  genderId          String
+  gender            Gender    @relation(fields: [genderId], references: [id], onDelete: Restrict)
+  birthDate         DateTime? @db.Date
+  photoUrl          String?
+  workEmail         String    @unique
+  personalEmail     String?
+  mobileNumber      String
+  viberNumber       String?
+  teamId            String? // primary team (drives TEAM scope)
+  team              Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  hireDate          DateTime? @db.Date
+  resignationDate   DateTime? @db.Date // "is resigned" is derived, never stored
+  reasonForLeaving  String?
+  deletedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user              User?
+  leads             TeamLead[]
+  addresses         EmployeeAddress[]
+  employments       EmployeeEmployment[]
+  deployments       EmployeeDeployment[]
+  activityReports   ActivityReport[]
+  monthlyReports    MonthlyActivityReport[]
+  staffAugAssignments StaffAugAssignment[]
+  changeRequests    EmployeeChangeRequest[]
+
+  @@index([lastName])
+  @@index([teamId])
+  @@map("employee")
+}
+
+enum AddressType {
+  CURRENT
+  PERMANENT
+}
+
+model EmployeeAddress {
+  id           String      @id @default(uuid(7))
+  employeeId   String
+  employee     Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  type         AddressType
+  regionCode   String
+  regionName   String
+  provinceCode String?
+  provinceName String?
+  cityCode     String
+  cityName     String
+  barangayCode String
+  barangayName String
+  addressLine  String
+  latitude     Decimal?    @db.Decimal(10, 7)
+  longitude    Decimal?    @db.Decimal(10, 7)
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([employeeId, type])
+  @@map("employee_address")
+}
+
+model EmployeeEmployment {
+  id                      String         @id @default(uuid(7))
+  employeeId              String
+  employee                Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  positionId              String
+  position                Position       @relation(fields: [positionId], references: [id], onDelete: Restrict)
+  levelId                 String
+  level                   Level          @relation(fields: [levelId], references: [id], onDelete: Restrict)
+  employmentTypeId        String
+  employmentType          EmploymentType @relation(fields: [employmentTypeId], references: [id], onDelete: Restrict)
+  salary                  Decimal        @db.Decimal(12, 2) // guarded by employee.view_compensation
+  communicationAllowance  Decimal        @default(0) @db.Decimal(12, 2)
+  transportationAllowance Decimal        @default(0) @db.Decimal(12, 2)
+  startDate               DateTime       @db.Date
+  endDate                 DateTime?      @db.Date // null = current
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+
+  @@index([employeeId, startDate])
+  @@map("employee_employment")
+}
+
+/// Where an employee is deployed (client + S3P project). Drives Staff Aug renewal status.
+model EmployeeDeployment {
+  id         String    @id @default(uuid(7))
+  employeeId String
+  employee   Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  clientId   String
+  client     Client    @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  projectId  String
+  project    Project   @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  role       String? // role at client, e.g. "Java Developer"
+  startDate  DateTime  @db.Date
+  endDate    DateTime? @db.Date // contract end; null = open-ended
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([employeeId, startDate])
+  @@index([projectId])
+  @@map("employee_deployment")
+}
+
+enum ChangeRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+/// Self-service profile edits from Settings & Profile, reviewed by someone with employee.update in scope.
+model EmployeeChangeRequest {
+  id           String              @id @default(uuid(7))
+  employeeId   String
+  employee     Employee            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  requestedById String
+  status       ChangeRequestStatus @default(PENDING)
+  proposed     Json // { profile, currentAddress, permanentAddress }
+  changes      Json // AuditChange[]
+  reviewedById String?
+  reviewedAt   DateTime?
+  reviewNote   String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@index([employeeId, status])
+  @@map("employee_change_request")
+}
+
+// ───────────────────────────── Workforce: Project (S3P) ─────────────────────────────
+
+model Project {
+  id                    String               @id @default(uuid(7))
+  s3pNumber             String               @unique
+  name                  String
+  clientId              String
+  client                Client               @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  engagementTypeId      String?
+  engagementType        EngagementType?      @relation(fields: [engagementTypeId], references: [id], onDelete: Restrict)
+  salesRepresentativeId String?
+  salesRepresentative   SalesRepresentative? @relation(fields: [salesRepresentativeId], references: [id], onDelete: Restrict)
+  solutionsManagerId    String?
+  solutionsManager      SolutionsManager?    @relation(fields: [solutionsManagerId], references: [id], onDelete: Restrict)
+  startDate             DateTime?            @db.Date
+  endDate               DateTime?            @db.Date
+  clientAliases         String[]             @default([]) // alternate client names on documents
+  deletedAt             DateTime?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  lines                 ProjectLine[]
+  teams                 ProjectTeam[]
+  deployments           EmployeeDeployment[]
+  oneLotLinks           OneLotProjectLink[]
+
+  @@index([clientId])
+  @@map("project")
+}
+
+/// Contract line items. Gross profit = contractPrice - estimatedCost (computed, never stored).
+model ProjectLine {
+  id            String   @id @default(uuid(7))
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  description   String
+  contractPrice Decimal  @db.Decimal(12, 2)
+  estimatedCost Decimal  @db.Decimal(12, 2)
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("project_line")
+}
+
+/// Project ↔ Team (many-to-many). Drives TEAM scope for projects.
+model ProjectTeam {
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now())
+
+  @@id([projectId, teamId])
+  @@index([teamId])
+  @@map("project_team")
+}
+
+// ───────────────────────────── Engagement: One-Lot (JIRA-like) ─────────────────────────────
+
+model OneLotProject {
+  id              String              @id @default(uuid(7))
+  key             String              @unique // short code used in work item codes, e.g. "BDO"
+  name            String
+  description     String?
+  nextItemNumber  Int                 @default(1)
+  createdById     String?
+  archivedAt      DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  links           OneLotProjectLink[] // ≥1 required (enforced in action)
+  members         OneLotMember[]
+  sprints         Sprint[]
+  columns         BoardColumn[]
+  workItems       WorkItem[]
+  documents       OneLotDocument[]
+
+  @@map("one_lot_project")
+}
+
+/// One-Lot ↔ S3P Project (many-to-many). e.g. one Implementation S3P + one Maintenance S3P.
+model OneLotProjectLink {
+  oneLotProjectId String
+  oneLotProject   OneLotProject @relation(fields: [oneLotProjectId], references: [id], onDelete: Cascade)
+  projectId       String
+  project         Project       @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  createdAt       DateTime      @default(now())
+
+  @@id([oneLotProjectId, projectId])
+  @@index([projectId])
+  @@map("one_lot_project_link")
+}
+
+enum OneLotRole {
+  OWNER
+  MEMBER
+  VIEWER
+}
+
+model OneLotMember {
+  oneLotProjectId String
+  oneLotProject   OneLotProject @relation(fields: [oneLotProjectId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role            OneLotRole    @default(MEMBER)
+  createdAt       DateTime      @default(now())
+
+  @@id([oneLotProjectId, userId])
+  @@index([userId])
+  @@map("one_lot_member")
+}
+
+enum SprintStatus {
+  PLANNED
+  ACTIVE
+  COMPLETED
+}
+
+model Sprint {
+  id              String        @id @default(uuid(7))
+  oneLotProjectId String
+  oneLotProject   OneLotProject @relation(fields: [oneLotProjectId], references: [id], onDelete: Cascade)
+  name            String
+  goal            String?
+  status          SprintStatus  @default(PLANNED)
+  startDate       DateTime?     @db.Date
+  endDate         DateTime?     @db.Date
+  startedAt       DateTime?
+  completedAt     DateTime?
+  workItems       WorkItem[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // "one ACTIVE sprint per project" → partial unique index added in a raw SQL migration
+  @@index([oneLotProjectId, status])
+  @@map("sprint")
+}
+
+model BoardColumn {
+  id              String        @id @default(uuid(7))
+  oneLotProjectId String
+  oneLotProject   OneLotProject @relation(fields: [oneLotProjectId], references: [id], onDelete: Cascade)
+  name            String
+  sortOrder       Int           @default(0)
+  isDefault       Boolean       @default(false) // new items land here
+  isDone          Boolean       @default(false) // moving here sets doneAt
+  wipLimit        Int?
+  workItems       WorkItem[]
+
+  @@index([oneLotProjectId, sortOrder])
+  @@map("board_column")
+}
+
+enum WorkItemType {
+  EPIC
+  STORY
+  TASK
+  BUG
+  SUBTASK
+}
+
+enum WorkItemPriority {
+  HIGHEST
+  HIGH
+  MEDIUM
+  LOW
+  LOWEST
+}
+
+model WorkItem {
+  id              String           @id @default(uuid(7))
+  oneLotProjectId String
+  oneLotProject   OneLotProject    @relation(fields: [oneLotProjectId], references: [id], onDelete: Cascade)
+  code            String // "<KEY>-<n>", e.g. "BDO-42"
+  type            WorkItemType     @default(TASK)
+  title           String
+  description     String? // Tiptap JSON/HTML (sanitized)
+  columnId        String
+  column          BoardColumn      @relation(fields: [columnId], references: [id], onDelete: Restrict)
+  sprintId        String? // null = backlog
+  sprint          Sprint?          @relation(fields: [sprintId], references: [id], onDelete: SetNull)
+  parentId        String?
+  parent          WorkItem?        @relation("WorkItemTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children        WorkItem[]       @relation("WorkItemTree")
+  priority        WorkItemPriority @default(MEDIUM)
+  assigneeId      String?
+  assignee        User?            @relation("WorkItemAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  reporterId      String?
+  reporter        User?            @relation("WorkItemReporter", fields: [reporterId], references: [id], onDelete: SetNull)
+  storyPoints     Decimal?         @db.Decimal(5, 1)
+  dueDate         DateTime?        @db.Date
+  labels          String[]         @default([])
+  rank            String // fractional index (LexoRank-style) for backlog order
+  boardRank       String // fractional index within column
+  doneAt          DateTime?
+  comments        WorkItemComment[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@unique([oneLotProjectId, code])
+  @@index([oneLotProjectId, sprintId, rank])
+  @@index([columnId, boardRank])
+  @@index([assigneeId])
+  @@map("work_item")
+}
+
+model WorkItemComment {
+  id         String   @id @default(uuid(7))
+  workItemId String
+  workItem   WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  authorId   String?
+  author     User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  body       String
+  editedAt   DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([workItemId, createdAt])
+  @@map("work_item_comment")
+}
+
+enum DocumentNodeType {
+  FOLDER
+  FILE
+}
+
+model OneLotDocument {
+  id              String           @id @default(uuid(7))
+  oneLotProjectId String
+  oneLotProject   OneLotProject    @relation(fields: [oneLotProjectId], references: [id], onDelete: Cascade)
+  parentId        String?
+  parent          OneLotDocument?  @relation("DocTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children        OneLotDocument[] @relation("DocTree")
+  type            DocumentNodeType
+  name            String
+  storageKey      String?
+  mimeType        String?
+  size            Int?
+  uploadedById    String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([oneLotProjectId, parentId])
+  @@map("one_lot_document")
+}
+
+// ───────────────────────────── Productivity: Activity Reports & MAR ─────────────────────────────
+
+enum ActivityStatus {
+  PRESENT
+  ON_LEAVE
+  HOLIDAY
+}
+
+/// One row per employee per day.
+model ActivityReport {
+  id         String               @id @default(uuid(7))
+  employeeId String
+  employee   Employee             @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date       DateTime             @db.Date
+  status     ActivityStatus       @default(PRESENT)
+  timeIn     DateTime?            @db.Time(0)
+  timeOut    DateTime?            @db.Time(0)
+  otHours    Decimal?             @db.Decimal(5, 2)
+  items      ActivityReportItem[]
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+
+  @@unique([employeeId, date])
+  @@index([date])
+  @@map("activity_report")
+}
+
+model ActivityReportItem {
+  id               String         @id @default(uuid(7))
+  activityReportId String
+  activityReport   ActivityReport @relation(fields: [activityReportId], references: [id], onDelete: Cascade)
+  activityCode     String
+  activityName     String
+  description      String
+  issuesBlockers   String?
+  sortOrder        Int            @default(0)
+
+  @@map("activity_report_item")
+}
+
+enum MarStatus {
+  DRAFT
+  SUBMITTED
+  RETURNED
+  APPROVED
+}
+
+/// Monthly submission/approval envelope over the daily rows. The PDF is generated from the daily data.
+model MonthlyActivityReport {
+  id           String    @id @default(uuid(7))
+  employeeId   String
+  employee     Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  year         Int
+  month        Int // 1-12
+  deploymentId String? // snapshot of client/project for the header
+  status       MarStatus @default(DRAFT)
+  submittedAt  DateTime?
+  reviewedById String?
+  reviewedAt   DateTime?
+  reviewNote   String?
+  pdfStorageKey String?  // frozen copy on approval
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([employeeId, year, month])
+  @@index([year, month, status])
+  @@map("monthly_activity_report")
+}
+
+// ───────────────────────────── Engagement: Staff Augmentation ─────────────────────────────
+
+/// A named grouping of deployed employees (e.g. per client account). Level/position/project/dates are read live.
+model StaffAugEngagement {
+  id          String               @id @default(uuid(7))
+  name        String
+  description String?
+  createdById String?
+  assignments StaffAugAssignment[]
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@map("staff_aug_engagement")
+}
+
+model StaffAugAssignment {
+  engagementId String
+  engagement   StaffAugEngagement @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  employeeId   String
+  employee     Employee           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  createdAt    DateTime           @default(now())
+
+  @@id([engagementId, employeeId])
+  @@map("staff_aug_assignment")
+}
+
+// ───────────────────────────── Administration ─────────────────────────────
+
+model AuditLog {
+  id          String   @id @default(uuid(7))
+  module      String // "employee", "group", …
+  action      String // "create" | "update" | "delete" | "approve" | "login" | …
+  entityId    String?
+  entityLabel String?
+  changes     Json? // AuditChange[] = { field, label, oldValue, newValue }[]
+  actorId     String?
+  actor       User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actorEmail  String?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([module, entityId])
+  @@index([actorId])
+  @@map("audit_log")
+}
+
+/// Organization-wide settings (key/value, typed by Zod in src/lib/settings.ts).
+model AppSetting {
+  key         String   @id // e.g. "org.name", "mar.reminderDay", "auth.allowedEmailDomains"
+  value       Json
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("app_setting")
+}

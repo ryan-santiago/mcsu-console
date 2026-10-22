@@ -1,0 +1,68 @@
+# syntax=docker/dockerfile:1.7
+# MCSU Console: multi-stage image (pnpm + Next.js standalone output + Prisma 7)
+# Targets:
+#   dev      → hot-reload dev server (used by `docker compose --profile dev`)
+#   migrate  → one-off: prisma migrate deploy + idempotent seed
+#   runner   → slim production image (node server.js), non-root, ~200 MB
+# See docs/10-docker.md.
+
+ARG NODE_VERSION=22
+
+# ───────────── base ─────────────
+FROM node:${NODE_VERSION}-alpine AS base
+RUN apk add --no-cache libc6-compat openssl
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH \
+    NEXT_TELEMETRY_DISABLED=1
+RUN corepack enable
+WORKDIR /app
+
+# ───────────── deps (cached on lockfile) ─────────────
+FROM base AS deps
+COPY package.json pnpm-lock.yaml ./
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile --ignore-scripts
+
+# ───────────── dev ─────────────
+FROM base AS dev
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN pnpm db:generate
+EXPOSE 3000
+CMD ["pnpm", "dev", "--hostname", "0.0.0.0", "--port", "3000"]
+
+# ───────────── build ─────────────
+FROM base AS build
+# NEXT_PUBLIC_* values are inlined at build time → pass as build args.
+ARG NEXT_PUBLIC_APP_URL=http://localhost:3000
+ARG NEXT_PUBLIC_VAPID_PUBLIC_KEY=
+ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL \
+    NEXT_PUBLIC_VAPID_PUBLIC_KEY=$NEXT_PUBLIC_VAPID_PUBLIC_KEY \
+    SKIP_ENV_VALIDATION=1
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN pnpm db:generate && pnpm build
+
+# ───────────── migrate (one-off job) ─────────────
+FROM build AS migrate
+ENV SKIP_ENV_VALIDATION=
+CMD ["sh", "-c", "pnpm db:deploy && pnpm db:seed"]
+
+# ───────────── runner (production) ─────────────
+FROM node:${NODE_VERSION}-alpine AS runner
+RUN apk add --no-cache libc6-compat openssl \
+ && addgroup -S -g 1001 nodejs \
+ && adduser -S -u 1001 -G nodejs nextjs
+WORKDIR /app
+ENV NODE_ENV=production \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0 \
+    NEXT_TELEMETRY_DISABLED=1
+COPY --from=build --chown=nextjs:nodejs /app/public ./public
+COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
+USER nextjs
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:3000/api/health || exit 1
+CMD ["node", "server.js"]

@@ -1,0 +1,85 @@
+# MCSU Console: local containers. See docs/10-docker.md.
+#
+#   docker compose up -d db                       # just Postgres (run the app on the host with pnpm dev)
+#   docker compose --profile dev up               # Postgres + hot-reload app in a container
+#   docker compose --profile tools run --rm migrate   # apply migrations + seed
+#   docker compose --profile prod up -d --build   # production image locally (migrate runs first)
+
+name: mcsu-console
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql://mcsu:mcsu@db:5432/mcsu_console
+  MIGRATE_DATABASE_URL: postgresql://mcsu:mcsu@db:5432/mcsu_console
+  TZ: Asia/Manila
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: mcsu
+      POSTGRES_PASSWORD: mcsu
+      POSTGRES_DB: mcsu_console
+      TZ: Asia/Manila
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mcsu -d mcsu_console"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app-dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      target: dev
+    env_file: .env.docker
+    environment:
+      <<: *app-env
+      WATCHPACK_POLLING: "true" # file watching through Windows bind mounts
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      db:
+        condition: service_healthy
+
+  migrate:
+    profiles: ["tools", "prod"]
+    build:
+      context: .
+      target: migrate
+    env_file: .env.docker
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    profiles: ["prod"]
+    build:
+      context: .
+      target: runner
+      args:
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+    image: mcsu-console:local
+    env_file: .env.docker
+    environment:
+      <<: *app-env
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  pgdata:
